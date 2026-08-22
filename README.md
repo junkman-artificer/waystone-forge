@@ -298,6 +298,14 @@ PRs adding new waystones or corrections to existing recipes are welcome.
 If you're not comfortable with JSON, open an issue with a screenshot of
 the recipe tracker and someone can transcribe it.
 
+Every PR touching `recipes.json` or `rune-affixes.json` runs an automated
+structural check (`.github/workflows/validate-data.yml`) - it catches
+typos and malformed submissions, like an invalid rune type or a missing
+required field, before a human even needs to look at the diff. It can't
+verify game accuracy, though - whether a recipe is actually correct in
+the real game still needs a human reviewer who knows it. A passing check
+means the data is well-formed, not that it's true.
+
 ## Contributing rune prefixes/suffixes
 
 `rune-affixes.json` holds the known Fortune (prefix) and Omen (suffix)
