@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Waystone Forge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header class="site-header">
+  <div class="header-toggles">
+    <label class="mode-toggle">
+      <span class="switch">
+        <input type="checkbox" id="troubleshooting-toggle" class="switch-input" />
+        <span class="switch-track"></span>
+      </span>
+      Troubleshooting Mode
+    </label>
+    <label class="mode-toggle">
+      <span class="switch">
+        <input type="checkbox" id="colorblind-toggle" class="switch-input" />
+        <span class="switch-track"></span>
+      </span>
+      Colorblind Mode
+    </label>
+  </div>
+  <h1>Waystone Forge</h1>
+  <p class="tagline">Upload. Plan. Build. Reset. Repeat.</p>
+</header>
+
+<div class="tutorial-trigger-row">
+  <button type="button" id="tutorial-open" class="tutorial-trigger">
+    <span class="tutorial-trigger-icon">?</span> How this works
+  </button>
+</div>
+
+<dialog id="tutorial-dialog">
+  <div class="tutorial-dialog-header">
+    <h3>How Waystone Forge Works</h3>
+    <button type="button" id="tutorial-close-x" class="tutorial-close-x" aria-label="Close">✕</button>
+  </div>
+
+  <p class="tutorial-p">Here's the short version: You get your runes into the app - either by
+    screenshotting your inventory or typing them in by hand - then review what got added before
+    anything gets tracked. From there, you pick which waystones you want to build, tier by tier,
+    and building is the one step that actually spends your runes. If you don't have the vita to
+    actually build all the decks, no problem! Download a checklist so you can remember what you
+    wanted.</p>
+
+  <hr class="tutorial-rule">
+  <p class="tutorial-h">Getting runes in</p>
+  <p class="tutorial-p">You've got two options here. Upload screenshots of your in-game inventory
+    and let the app read them for you (there's a few tips above the upload button for getting the
+    cleanest results) - or, if you'd rather skip screenshots altogether, <b>Add a Rune
+    Manually</b> lets you type them in by hand instead. Either way, nothing actually gets added
+    to your inventory until you've looked it over and confirmed it.</p>
+
+  <hr class="tutorial-rule">
+  <p class="tutorial-h">Your inventory</p>
+  <p class="tutorial-p">Everything you've confirmed shows up in Your Inventory, sorted by tier.
+    If something ends up under the wrong tier, just use its <b>Tier</b> dropdown to move it -
+    it'll merge into a matching stack if one's already there, rather than splitting into a
+    duplicate.</p>
+
+  <hr class="tutorial-rule">
+  <p class="tutorial-h">Building a deck</p>
+  <p class="tutorial-p">Each tier gets its own tab - it'll turn green once there's at least one
+    waystone you can actually build there, and stays red until then. Want to narrow things down
+    first? Uncheck any Fortune you'd rather hold onto, or check off an Omen you'd rather not use,
+    and the app will only count what's left. Not sure what one of them actually does? Hover its
+    name for the full effect text.</p>
+  <p class="tutorial-p">Check off whichever waystones you're after and set how many of each you
+    want. The suggested amounts keep adjusting as you go - so if one waystone you've already
+    committed to eats into a rune type another one needs, that other one's suggested quantity
+    updates right along with it.</p>
+  <p class="tutorial-p">Once you've picked what you want, hit <b>Find Combinations</b> and it'll
+    show you every way you could actually build it, laid out as a set of options - there's always
+    a "Don't build this" choice too, in case you change your mind. If you've got more than one
+    named rune of a type that could cover what's needed, you'll see a change link next to the
+    app's automatic pick (always the one you have the most of) - so you can swap it for a
+    different one you'd rather use instead. Hover any tag you see there, too, for the full effect
+    text on that specific rune - Fortune tags use [square brackets], Omen tags use
+    &lt;angle brackets&gt;, so the shape alone tells you which is which, even without relying
+    on color. Nothing gets deducted until you hit <b>Build Selected</b>, though - that's the
+    only button that actually spends your runes.</p>
+
+  <hr class="tutorial-rule">
+  <p class="tutorial-h">When you're done</p>
+  <p class="tutorial-p">Once everything you've picked is actually built, you'll see a
+    <b>Download Build Checklist</b> button show up. It's a standalone file you can open right on
+    your phone and check off as you build each one in-game - it's even got its own
+    <b>Save a Copy of This Page</b> and <b>Discard This Checklist</b> buttons. And if you ever
+    want a clean slate, <b>Reset</b> will clear out your whole tracked inventory.</p>
+
+  <hr class="tutorial-rule">
+  <p class="tutorial-h">Troubleshooting Mode</p>
+  <p class="tutorial-p">Shows you the raw text the app actually read off each row. You'll
+    already see this automatically for any row that needs a second look - this toggle just lets
+    you see it for every row, in case you're curious or something's not reading right.</p>
+
+  <hr class="tutorial-rule">
+  <p class="tutorial-h">Colorblind Mode</p>
+  <p class="tutorial-p">Flip this on and you'll get a ✓ or ✗ on each tier tab, so you can
+    ignore the green and red while still knowing whether you have build options or not.</p>
+
+  <button type="button" id="tutorial-close" class="secondary tutorial-close-btn">Close</button>
+</dialog>
+
+<main>
+  <section class="panel">
+    <h2><span class="step">1</span> Add runes from a screenshot</h2>
+    <div class="dos-donts">
+      <div class="dos-donts-col">
+        <p class="dos-donts-label dos-label">✓ Do</p>
+        <ul class="dos-donts-list">
+          <li>Start at the bottom of your rune list - scroll all the way down past them
+            first, then work your way back up.</li>
+          <li>Scroll until the last rune you captured fully disappears off the top of the
+            screen before the next shot.</li>
+        </ul>
+      </div>
+      <div class="dos-donts-col">
+        <p class="dos-donts-label donts-label">✗ Don't</p>
+        <ul class="dos-donts-list">
+          <li>Leave gaps between screenshots - a missed rune won't show up anywhere, with
+            no way to know it's gone.</li>
+          <li>Worry about overlap near the end of your list, where you can't scroll further -
+            duplicates get flagged and unchecked automatically; just confirm the flag.</li>
+        </ul>
+      </div>
+    </div>
+    <p class="hint">Upload several at once or one at a time - they pool into one review list
+      below, where rows near an edge are unchecked by default in case they got cut off.</p>
+    <input type="file" id="file-input" accept="image/*" multiple />
+    <button type="button" id="manual-add-open" class="secondary manual-add-trigger">Add a Rune Manually</button>
+    <dialog id="manual-add-dialog">
+      <h3>Add a rune manually</h3>
+      <p class="hint">Plug in exactly what you've got - no screenshot needed.</p>
+      <div class="manual-add-fields">
+        <label class="manual-add-field">
+          <span class="affix-label">Tier</span>
+          <select id="manual-tier"></select>
+        </label>
+        <label class="manual-add-field">
+          <span class="affix-label">Type</span>
+          <select id="manual-type"></select>
+        </label>
+        <label class="manual-add-field">
+          <span class="affix-label">Fortune</span>
+          <select id="manual-fortune"></select>
+        </label>
+        <label class="manual-add-field">
+          <span class="affix-label">Omen</span>
+          <select id="manual-omen"></select>
+        </label>
+      </div>
+      <p id="manual-add-status" class="manual-add-status" aria-live="polite"></p>
+      <div class="manual-add-actions">
+        <button type="button" id="manual-add-close" class="secondary">Close</button>
+        <button type="button" id="manual-add-submit" class="primary">Add to inventory</button>
+      </div>
+    </dialog>
+    <div id="preview-strip" class="preview-strip hidden"></div>
+    <p id="ocr-progress" class="hidden"></p>
+    <div id="pending-rows" class="pending-rows"></div>
+    <div class="row-actions">
+      <button id="confirm-add" class="primary hidden">Add checked rows to inventory</button>
+      <button id="clear-pending" class="secondary hidden">Clear Pending Rows</button>
+    </div>
+    <details id="debug-panel" class="debug-panel hidden">
+      <summary>Debug: raw OCR output for the last screenshot(s)</summary>
+      <pre id="debug-output"></pre>
+    </details>
+  </section>
+
+  <section class="panel">
+    <h2><span class="step">2</span> Your inventory</h2>
+    <div id="inventory-table"></div>
+    <div class="row-actions">
+      <button id="reset-inventory" class="danger">Reset</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2><span class="step">3</span> Pick what you want to build</h2>
+    <div id="tier-tabs" class="tier-tabs"></div>
+    <div id="waystone-list" class="waystone-list"></div>
+    <button id="solve-btn" class="primary">Find Combinations</button>
+    <div id="results" class="results"></div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script type="module" src="app-ui.js"></script>
+</body>
+</html>

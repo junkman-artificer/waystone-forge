@@ -1,0 +1,1048 @@
+:root {
+  --bg: #14110f;
+  --panel: #1e1a16;
+  --panel-raised: #241f1a;
+  --rule: #3a322a;
+  --gold: #c9a227;
+  --gold-dim: #8a7220;
+  --rust: #b4552f;
+  --duplicate: #9a6fb0;
+  --text: #e8dfc8;
+  --text-muted: #8b8072;
+  --success: #6f9c6f;
+  --affix-blue: #6b8cae;
+  --font-display: "Cinzel", serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  background-image: radial-gradient(circle at 15% 0%, #1c1712 0%, var(--bg) 45%);
+  color: var(--text);
+  font-family: var(--font-body);
+  line-height: 1.55;
+  padding-bottom: 3rem;
+}
+
+.site-header {
+  position: relative;
+  text-align: center;
+  padding: 3rem 1.5rem 2rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.header-toggles {
+  position: absolute;
+  top: 1rem;
+  right: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.mode-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.switch {
+  position: relative;
+  display: inline-flex;
+  width: 34px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.switch-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.switch-track {
+  position: absolute;
+  inset: 0;
+  background: var(--rule);
+  border-radius: 999px;
+  transition: background 0.15s ease;
+}
+
+.switch-track::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.switch-input:checked ~ .switch-track {
+  background: var(--gold-dim);
+}
+
+.switch-input:checked ~ .switch-track::before {
+  transform: translateX(16px);
+  background: var(--gold);
+}
+
+.switch-input:focus-visible ~ .switch-track {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.site-header h1 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-size: clamp(1.8rem, 4vw, 2.6rem);
+  color: var(--gold);
+  margin: 0 0 0.5rem;
+}
+
+.tagline {
+  color: var(--text-muted);
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.tutorial-trigger-row {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.6rem 1.25rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+/* Modeled directly on the already-proven .link-btn pattern (used
+   throughout for "Select All"/"change" links) rather than a new,
+   untested background:none/border:none rule - this exact pattern is
+   already confirmed to render border-less in this real stylesheet. */
+.tutorial-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-family: var(--font-body);
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+}
+
+.tutorial-trigger:hover {
+  color: var(--gold);
+}
+
+.tutorial-trigger-icon {
+  width: 16px;
+  height: 16px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.68rem;
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+
+#tutorial-dialog {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--gold-dim);
+  border-radius: 6px;
+  padding: 1.75rem;
+  max-width: 560px;
+  width: 90vw;
+  max-height: 80vh;
+  overflow-y: auto;
+  font-family: var(--font-body);
+}
+
+#tutorial-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.tutorial-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 0 0 1.25rem;
+}
+
+.tutorial-dialog-header h3 {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  color: var(--text);
+  margin: 0;
+}
+
+.tutorial-close-x {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0.2rem;
+}
+
+.tutorial-close-x:hover {
+  color: var(--gold);
+}
+
+.tutorial-h {
+  font-family: var(--font-display);
+  font-size: 1.02rem;
+  color: var(--gold);
+  margin: 1.4rem 0 0.5rem;
+}
+
+.tutorial-h:first-of-type {
+  margin-top: 0;
+}
+
+.tutorial-p {
+  color: var(--text-muted);
+  font-size: 0.87rem;
+  line-height: 1.6;
+  margin: 0 0 0.4rem;
+}
+
+.tutorial-p b {
+  color: var(--text);
+}
+
+.tutorial-rule {
+  border: none;
+  border-top: 1px solid var(--rule);
+  margin: 1.4rem 0 0;
+}
+
+.tutorial-close-btn {
+  display: block;
+  width: 100%;
+  margin-top: 1.5rem;
+}
+
+main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 1.25rem;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 1.5rem;
+  margin-top: 1.75rem;
+}
+
+.panel h2 {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  letter-spacing: 0.02em;
+  margin: 0 0 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 1px solid var(--gold-dim);
+  border-radius: 50%;
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+  font-size: 0.8rem;
+  color: var(--gold);
+  flex-shrink: 0;
+}
+
+.dos-donts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.2rem;
+  margin-bottom: 1rem;
+}
+
+.dos-donts-label {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  margin: 0 0 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.dos-label {
+  color: var(--success);
+}
+
+.donts-label {
+  color: var(--rust);
+}
+
+.dos-donts-list {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin: 0;
+  padding-left: 1.2rem;
+  line-height: 1.5;
+}
+
+.dos-donts-list li {
+  margin-bottom: 0.5rem;
+}
+
+.dos-donts-list li:last-child {
+  margin-bottom: 0;
+}
+
+.hint {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin: 0 0 1rem;
+  line-height: 1.6;
+}
+
+input[type="file"] {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* Matches button + button.secondary exactly (same padding, border,
+   font-size) so the native file picker's own internal button lines up
+   at the same height as the app's other buttons sitting next to it -
+   it's a separate native control with its own default sizing, so this
+   has to be set explicitly rather than just inheriting from `button`. */
+input[type="file"]::file-selector-button {
+  font-family: var(--font-body);
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid var(--rule);
+  padding: 0.55rem 1.1rem;
+  cursor: pointer;
+  font-size: 0.88rem;
+  background: var(--rule);
+  color: var(--text);
+  margin-right: 0.75rem;
+}
+
+.preview-strip {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding: 0.5rem 0;
+}
+
+.preview-thumb {
+  height: 140px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.hidden {
+  display: none !important;
+}
+
+#ocr-progress {
+  color: var(--gold);
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+  font-size: 0.85rem;
+}
+
+#ocr-progress.error {
+  color: var(--rust);
+  font-family: var(--font-body);
+  white-space: normal;
+}
+
+.pending-rows {
+  margin-top: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.pending-row {
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  background: var(--panel-raised);
+}
+
+.pending-row.clipped {
+  opacity: 0.55;
+  border-style: dashed;
+}
+
+.pending-row.needs-review {
+  border-left: 4px solid var(--rust);
+  background: rgba(180, 85, 47, 0.1);
+}
+
+.row-badge {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.badge-needs-review {
+  background: rgba(180, 85, 47, 0.22);
+  color: #e8b39c;
+}
+
+/* The halo: a soft purple glow wrapping the whole suspected-duplicate
+   set, so the pairing itself is visible without reading any text. Each
+   member keeps its own pending-row styling inside; the halo just adds a
+   glow and pulls their spacing tighter so they read as one unit. */
+.duplicate-halo {
+  border-radius: 6px;
+  padding: 0.6rem;
+  margin: 0.15rem 0;
+  background: rgba(154, 111, 176, 0.08);
+  box-shadow: 0 0 0 1px var(--duplicate), 0 0 14px rgba(154, 111, 176, 0.35);
+}
+
+.duplicate-halo-label {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+  font-size: 0.72rem;
+  color: var(--duplicate);
+  margin-bottom: 0.4rem;
+}
+
+.duplicate-halo .pending-row {
+  margin-bottom: 0.4rem;
+}
+
+.duplicate-halo .pending-row:last-child {
+  margin-bottom: 0;
+}
+
+.pending-row label {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  font-size: 0.9rem;
+}
+
+.row-type {
+  font-weight: 600;
+}
+
+.row-affixes {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.4rem;
+  padding-left: 1.85rem;
+  flex-wrap: wrap;
+}
+
+.affix-field {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.suggestion-chip {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--gold-dim);
+  border-radius: 999px;
+  background: rgba(201, 162, 39, 0.1);
+  color: var(--gold);
+  cursor: pointer;
+}
+
+.suggestion-chip:hover {
+  background: rgba(201, 162, 39, 0.2);
+}
+
+.affix-label {
+  color: var(--text-muted);
+}
+
+.subheading {
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  color: var(--gold);
+  margin: 1.1rem 0 0.5rem;
+}
+
+.subheading:first-child {
+  margin-top: 0;
+}
+
+.row-note {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  margin-left: auto;
+}
+
+.source-tag-duplicate {
+  color: var(--duplicate);
+  font-weight: 700;
+}
+
+.source-tag-needs-review {
+  color: var(--rust);
+  font-weight: 700;
+}
+
+.rune-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--gold);
+  flex-shrink: 0;
+}
+
+select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0.2rem 0.4rem;
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+}
+
+button {
+  font-family: var(--font-body);
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid var(--rule);
+  padding: 0.55rem 1.1rem;
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+
+button.primary {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: #1a1510;
+}
+
+#solve-btn {
+  margin-top: 0.75rem;
+}
+
+button.secondary {
+  background: var(--rule);
+  color: var(--text);
+  border-color: var(--rule);
+}
+
+button.danger {
+  background: var(--rust);
+  color: #1a1510;
+  border-color: var(--rust);
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--gold);
+  padding: 0 0.3rem;
+  font-size: 0.85rem;
+}
+
+.row-actions {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.9rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+th, td {
+  text-align: left;
+  padding: 0.45rem 0.5rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+th {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+}
+
+.empty {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  font-style: italic;
+}
+
+.debug-panel {
+  margin-top: 1rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+}
+
+.debug-panel summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.debug-panel[open] summary {
+  margin-bottom: 0.5rem;
+}
+
+#debug-output {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+  font-size: 0.75rem;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+  margin: 0;
+}
+
+.tier-tabs {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.tier-tab {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 0.82rem;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--rule);
+  border-bottom: none;
+  border-top-width: 3px;
+  border-radius: 6px 6px 0 0;
+  background: var(--panel-raised);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s ease;
+}
+
+.tier-tab:hover {
+  opacity: 0.9;
+}
+
+.tier-tab.active {
+  opacity: 1;
+  background: var(--bg);
+  color: var(--text);
+  position: relative;
+  z-index: 1;
+}
+
+.tier-tab.green {
+  border-top-color: var(--success);
+}
+
+.tier-tab.red {
+  border-top-color: var(--rust);
+}
+
+.tier-tab-mark {
+  margin-right: 0.3rem;
+  font-weight: 700;
+}
+
+.tier-tab.green .tier-tab-mark {
+  color: var(--success);
+}
+
+.tier-tab.red .tier-tab-mark {
+  color: var(--rust);
+}
+
+.waystone-list {
+  border: 1px solid var(--rule);
+  border-radius: 0 4px 4px 4px;
+  padding: 0.75rem;
+  background: var(--bg);
+  margin-top: -1px;
+}
+
+.waystone-list fieldset {
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  margin-bottom: 0.75rem;
+  padding: 0.6rem 0.9rem;
+}
+
+.waystone-list fieldset:last-child {
+  margin-bottom: 0;
+}
+
+.waystone-list legend {
+  font-family: var(--font-display);
+  color: var(--gold);
+  font-size: 0.85rem;
+  padding: 0 0.4rem;
+}
+
+.affix-filter {
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 0.75rem;
+}
+
+.affix-filter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.affix-filter-title {
+  font-family: var(--font-display);
+  color: var(--gold);
+  font-size: 0.85rem;
+}
+
+.affix-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+}
+
+.affix-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.waystone-option {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 3px;
+  border-left: 3px solid transparent;
+}
+
+.waystone-option label {
+  flex: 1;
+  cursor: pointer;
+}
+
+.waystone-option.green {
+  border-left-color: var(--success);
+  background: rgba(111, 156, 111, 0.08);
+}
+
+.waystone-option.red {
+  border-left-color: var(--rust);
+  background: rgba(180, 85, 47, 0.08);
+}
+
+.qty-input {
+  width: 3.2rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0.2rem 0.4rem;
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+  font-size: 0.82rem;
+  /* Firefox: hides the native up/down stepper. */
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+/* Chrome/Safari/Edge: same, via the pseudo-elements they use instead of
+   -moz-appearance. Both rules are needed to cover every browser. */
+.qty-input::-webkit-outer-spin-button,
+.qty-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.results {
+  margin-top: 1rem;
+}
+
+.results-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.result-card {
+  background: var(--panel-raised);
+  border: 1px solid var(--gold-dim);
+  border-radius: 4px;
+  padding: 0.75rem 0.9rem;
+  position: relative;
+}
+
+/* The "change" dropdown is a real <select> - while it's open (which
+   keeps the select focused), its containing card gets promoted above
+   its grid siblings, so an adjacent card's own background/border can
+   never end up painting over the open options list. */
+.result-card:focus-within {
+  z-index: 10;
+}
+
+.result-card h3 {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  margin: 0 0 0.35rem;
+  color: var(--text);
+}
+
+.recipe-line {
+  margin: 0 0 0.2rem;
+  color: var(--gold);
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+  font-size: 0.85rem;
+}
+
+.recipe-line:last-child {
+  margin-bottom: 0;
+}
+
+.result-card-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.result-card-header h3 {
+  margin: 0;
+  flex: 1;
+}
+
+.result-check {
+  accent-color: var(--gold);
+}
+
+.result-unit-options {
+  margin-bottom: 0.6rem;
+}
+
+.result-unit-options:last-child {
+  margin-bottom: 0;
+}
+
+.result-unit-radio {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+  margin-bottom: 0.15rem;
+}
+
+.result-unit-radio:last-child {
+  margin-bottom: 0;
+}
+
+.result-unit-radio .recipe-line {
+  margin: 0;
+}
+
+.skip-text {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.result-unit-built {
+  margin-bottom: 0.5rem;
+}
+
+.result-unit-built:last-child {
+  margin-bottom: 0;
+}
+
+.result-unit-built .built-badge {
+  display: block;
+  margin-bottom: 0.15rem;
+}
+
+.built-badge {
+  color: var(--success);
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+}
+
+.used-line {
+  margin: 0 0 0.2rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+  font-size: 0.8rem;
+}
+
+.used-line:last-child {
+  margin-bottom: 0;
+}
+
+.affix-tag-fortune {
+  color: var(--affix-blue);
+  font-size: 0.72rem;
+  margin: 0 0.15rem;
+}
+
+.affix-tag-omen {
+  color: var(--rust);
+  font-size: 0.72rem;
+  margin: 0 0.15rem;
+}
+
+.build-selected-btn {
+  margin-bottom: 1.25rem;
+}
+
+.checklist-btn {
+  margin-bottom: 1.25rem;
+}
+
+.warn {
+  color: var(--rust);
+  font-size: 0.9rem;
+}
+
+.manual-add-trigger {
+  margin-top: 0.6rem;
+}
+
+#manual-add-dialog {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--gold-dim);
+  border-radius: 6px;
+  padding: 1.5rem;
+  max-width: 420px;
+  width: 90vw;
+  font-family: var(--font-body);
+}
+
+#manual-add-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+#manual-add-dialog h3 {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  margin: 0 0 0.4rem;
+  color: var(--text);
+}
+
+#manual-add-dialog .hint {
+  margin-bottom: 1rem;
+}
+
+.manual-add-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.manual-add-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+}
+
+.manual-add-field select {
+  width: 100%;
+}
+
+.manual-add-status {
+  min-height: 1.2rem;
+  color: var(--success);
+  font-size: 0.8rem;
+  margin: 0 0 0.75rem;
+}
+
+.manual-add-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+@media (max-width: 480px) {
+  .header-toggles {
+    position: static;
+    align-items: center;
+    margin-bottom: 0.75rem;
+  }
+
+  .manual-add-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .dos-donts {
+    grid-template-columns: 1fr;
+  }
+}

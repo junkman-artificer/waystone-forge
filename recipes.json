@@ -1,0 +1,104 @@
+{
+  "_comment": "Community-maintained recipe data for Waystone Forge. Each waystone can have multiple valid recipes, and the SAME set of waystones and recipes applies at every tier 1-5 - only the tier of rune used to satisfy them differs, not the recipe structure itself, so a waystone is defined here once with no tier field, and the app expands it into a tier-tagged copy for each tier when it loads. A slot is an array of rune types that satisfy it - a single-item array is a fixed requirement, a multi-item array is a wildcard (any one of those types). See README.md for the schema and how to submit new recipes.",
+  "types": ["City", "Flower", "Mask", "River", "Night", "Mud", "Song"],
+  "waystones": [
+    {
+      "name": "Heist at Smuggler's Wharf",
+      "location": "Eastern Gate",
+      "recipes": [
+        { "slots": [["City"], ["Mask"], ["River"]] }
+      ]
+    },
+    {
+      "name": "Mr Ripley's Midnight Carnival",
+      "location": "Eastern Gate",
+      "recipes": [
+        { "slots": [["Mask"], ["Night"], ["Song"]] }
+      ]
+    },
+    {
+      "name": "Outer Wards of the Old City",
+      "location": "Eastern Gate",
+      "recipes": [
+        { "slots": [["City"], ["City"], ["City", "Mask", "Night", "Song"]] },
+        { "slots": [["City"], ["Mask"], ["Mask", "Night"]] },
+        { "slots": [["Mask"], ["Mask"], ["Flower", "Mask", "Mud", "Night", "River", "Song"]] },
+        { "slots": [["Mask"], ["Mud"], ["Song"]] }
+      ]
+    },
+    {
+      "name": "The Theatre District",
+      "location": "Eastern Gate",
+      "recipes": [
+        { "slots": [["City"], ["Mask"], ["Song"]] }
+      ]
+    },
+    {
+      "name": "Nightsong Bloom",
+      "location": "Briarstone Quarry",
+      "recipes": [
+        { "slots": [["Flower"], ["Night"], ["Song"]] }
+      ]
+    },
+    {
+      "name": "Gloomwood Depths",
+      "location": "Gloomhaven",
+      "recipes": [
+        { "slots": [["Flower"], ["Mask", "Mud"], ["Mud", "Night"]] },
+        { "slots": [["Mask"], ["Mud", "Night"], ["Mud", "Night", "River"]] },
+        { "slots": [["Mud"], ["Mud"], ["Mud", "Night", "River", "Song"]] },
+        { "slots": [["Mud"], ["Night"], ["River", "Song"]] },
+        { "slots": [["Night"], ["Night"], ["City", "Flower", "Mud", "Night", "River", "Song"]] }
+      ]
+    },
+    {
+      "name": "Goblin Shipyards",
+      "location": "Gloomhaven",
+      "recipes": [
+        { "slots": [["City"], ["Mud"], ["River"]] }
+      ]
+    },
+    {
+      "name": "Canals of Sweetwater",
+      "location": "Sweetwater",
+      "recipes": [
+        { "slots": [["City"], ["River"], ["City", "Flower", "Night", "River", "Song"]] }
+      ]
+    },
+    {
+      "name": "Festival of Petals",
+      "location": "Sweetwater",
+      "recipes": [
+        { "slots": [["City"], ["Flower"], ["City", "Flower", "Mask", "Mud", "Night", "Song"]] }
+      ]
+    },
+    {
+      "name": "Meadowland Wilds",
+      "location": "Sweetwater",
+      "recipes": [
+        { "slots": [["Flower", "River", "Song"], ["Flower", "River", "Song"], ["Flower", "River", "Song"]] },
+        { "slots": [["Flower"], ["Flower"], ["Mask", "Mud", "Night"]] },
+        { "slots": [["Flower"], ["River"], ["Mask", "Mud", "Night"]] },
+        { "slots": [["Flower"], ["Song"], ["Mask", "Mud"]] },
+        { "slots": [["River"], ["River"], ["Mask", "Mud", "Night"]] },
+        { "slots": [["River"], ["Song"], ["Mask", "Mud", "Night"]] },
+        { "slots": [["Song"], ["Song"], ["Mask", "Mud", "Night"]] },
+        { "slots": [["City"], ["Song"], ["Night", "Song"]] }
+      ]
+    },
+    {
+      "name": "The Filthworks",
+      "location": "The Burrows",
+      "recipes": [
+        { "slots": [["City"], ["Mud"], ["City", "Mask", "Mud", "Song"]] }
+      ]
+    },
+    {
+      "name": "The Pit of Hands",
+      "location": "The Burrows",
+      "recipes": [
+        { "slots": [["City"], ["Mud"], ["Night"]] }
+      ]
+    }
+  ]
+}
