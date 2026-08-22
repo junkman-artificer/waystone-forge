@@ -1,9 +1,17 @@
 # Waystone Forge
 
-Screenshot your in-game rune inventory, build up a running count of what you
-own, and see exactly which rune combinations you can craft - including
-which specific runes to spend when several crafts compete for the same
-types.
+**Just want to use it?** → [Open Waystone Forge](https://junkman-artificer.github.io/waystone-forge/) - nothing
+to install, no account needed, and nothing you upload ever leaves your own
+browser.
+
+Screenshot your in-game rune inventory, and it figures out exactly which
+waystones you can build right now - down to which specific rune to reach
+for when a few crafts are competing for the same type.
+
+Curious how it works under the hood, or want to run it yourself or
+contribute? Keep reading below.
+
+---
 
 **Runs entirely in your browser.** OCR happens locally via
 [Tesseract.js](https://github.com/naptha/tesseract.js) (WebAssembly). No
