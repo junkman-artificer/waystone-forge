@@ -43,18 +43,17 @@ has to clear.
 > double-click-to-open that breaks.
 
 1. Open the page (via a local server, or GitHub Pages once deployed).
-2. Screenshot your rune inventory in chunks. Scroll until the last rune
-   you captured fully disappears off the top of the screen before the
-   next shot, and
-   start at the bottom of your list and work upward - the runes are
-   typically near the bottom, with only junk items below them (which
-   shift around as you sell them), so that edge isn't a reliable
-   starting point. Working away from it gives the cleanest run of
-   screenshots. Leaving gaps is the one real risk - a missed rune won't
+2. Screenshot your rune inventory in chunks. Scroll from the top of your
+   list downward, capturing each shot until the last rune you captured
+   fully disappears off the top of the screen before the next one - a
+   floating tier label covers whatever line sits at the very top of the
+   screen, so scrolling the other direction leaves that line unreadable
+   every time. Leaving gaps is the one real risk - a missed rune won't
    show up anywhere, and there's no way to know it's gone. Overlap
-   isn't: once you hit the end of your list and can't scroll further,
-   any duplicate runes get flagged and unchecked automatically, so
-   there's nothing to fix beyond confirming the flag was right.
+   isn't: your final screenshot will likely re-capture a few runes you
+   already have once you hit the end of your list and can't scroll
+   further, but any duplicates get flagged and unchecked automatically,
+   so there's nothing to fix beyond confirming the flag was right.
 3. Upload your screenshots - select several at once (on mobile, tap
    each photo to multi-select before confirming), or upload them one at
    a time; either way they pool into the same review list rather than

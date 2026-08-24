@@ -1053,25 +1053,3 @@ th {
     grid-template-columns: 1fr;
   }
 }
-
-/* Tier tabs and waystone checklist rows use green/red specifically to
-   carry buildable/not-buildable status - that's real information, not
-   decoration, so it's preserved even when a browser applies forced
-   colors mode (a real, legitimate accessibility feature for users who
-   need a simplified, high-contrast palette). Scoped to just these
-   elements rather than disabled app-wide, so everything else (text,
-   buttons, backgrounds) still respects that accessibility preference
-   normally - only the one place where color itself is the signal is
-   exempted. Colorblind Mode's ✓/✗ marks are a separate, non-color
-   fallback for the same information, but forced-colors mode is an
-   OS-level setting someone could have on without separately having
-   toggled that on too, so this doesn't rely on it as the only safety
-   net. */
-.tier-tab.green,
-.tier-tab.green .tier-tab-mark,
-.tier-tab.red,
-.tier-tab.red .tier-tab-mark,
-.waystone-option.green,
-.waystone-option.red {
-  forced-color-adjust: none;
-}
