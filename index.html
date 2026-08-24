@@ -163,11 +163,11 @@
         </label>
         <label class="manual-add-field">
           <span class="affix-label">Tag</span>
-          <select id="manual-tag-name"></select>
-        </label>
-        <label class="manual-add-field">
-          <span class="affix-label">Magnitude</span>
-          <input type="number" id="manual-tag-magnitude" min="1" step="1" placeholder="e.g. 1" />
+          <div class="tag-combo">
+            <span class="tag-plus">+</span>
+            <input type="number" id="manual-tag-magnitude" min="1" step="1" class="tag-magnitude-input" placeholder="1" />
+            <select id="manual-tag-name"></select>
+          </div>
         </label>
       </div>
       <p id="manual-add-status" class="manual-add-status" aria-live="polite"></p>

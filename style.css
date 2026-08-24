@@ -504,6 +504,31 @@ input[type="file"]::file-selector-button {
   color: var(--text-muted);
 }
 
+/* Groups the "+", the magnitude number, and the tag-name dropdown into
+   one visually connected unit reading left to right as "+1 Monster" -
+   the same order and shape as the in-game badge itself, rather than the
+   number sitting far away under a generic "Magnitude" label with no
+   visual tie to what it's a magnitude OF. */
+.tag-combo {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.tag-plus {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+}
+
+/* Narrow - this is a single small digit in practice, not a value that
+   needs a full-width box. */
+.tag-magnitude-input {
+  width: 3.2rem;
+  text-align: center;
+}
+
 .subheading {
   font-family: var(--font-display);
   font-size: 0.9rem;
@@ -539,6 +564,16 @@ input[type="file"]::file-selector-button {
 }
 
 select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0.2rem 0.4rem;
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+}
+
+input[type="number"] {
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--rule);

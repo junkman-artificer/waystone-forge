@@ -407,11 +407,11 @@ function rowHtml(row, fortuneNames, omenNames) {
         </label>
         <label class="affix-field">
           <span class="affix-label">Tag</span>
-          <select data-role="tagName">${affixOptions(TAG_NAMES, row.tagName)}</select>
-        </label>
-        <label class="affix-field">
-          <span class="affix-label">Magnitude</span>
-          <input type="number" min="1" step="1" data-role="tagMagnitude" value="${row.tagMagnitude ?? ""}" placeholder="e.g. 1" />
+          <div class="tag-combo">
+            <span class="tag-plus">+</span>
+            <input type="number" min="1" step="1" class="tag-magnitude-input" data-role="tagMagnitude" value="${row.tagMagnitude ?? ""}" placeholder="1" />
+            <select data-role="tagName">${affixOptions(TAG_NAMES, row.tagName)}</select>
+          </div>
         </label>
       </div>
     </div>`;
