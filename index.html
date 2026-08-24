@@ -112,6 +112,9 @@
 <main>
   <section class="panel">
     <h2><span class="step">1</span> Add runes from a screenshot</h2>
+    <p class="hint">Navigate to Runecrafting → select an empty rune slot before screenshotting.
+      The plain My Inventory screen looks similar but doesn't show the colored tag badges
+      (+1 Rest, +2 Monster, etc.) at all.</p>
     <div class="dos-donts">
       <div class="dos-donts-col">
         <p class="dos-donts-label dos-label">✓ Do</p>
@@ -157,6 +160,14 @@
         <label class="manual-add-field">
           <span class="affix-label">Omen</span>
           <select id="manual-omen"></select>
+        </label>
+        <label class="manual-add-field">
+          <span class="affix-label">Tag</span>
+          <select id="manual-tag-name"></select>
+        </label>
+        <label class="manual-add-field">
+          <span class="affix-label">Magnitude</span>
+          <input type="number" id="manual-tag-magnitude" min="1" step="1" placeholder="e.g. 1" />
         </label>
       </div>
       <p id="manual-add-status" class="manual-add-status" aria-live="polite"></p>

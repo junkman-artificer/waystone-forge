@@ -1,6 +1,6 @@
 import { PradoApp } from "./app.js";
 
-const { state, itemKey, saveInventory, addToInventory, getTierTypeTotal, getFilteredTierTypeTotal, getFilteredTierTypeCandidates, resolveTypeAllocation, parseScreenshot, solveAllocation, bestBuildableOption, allBuildableOptions, requirementSignature, computeMissingParts, flagDuplicates, sortForDuplicateReview, TYPE_ICONS, RUNE_TYPES } =
+const { state, itemKey, saveInventory, addToInventory, getTierTypeTotal, getFilteredTierTypeTotal, getFilteredTierTypeCandidates, resolveTypeAllocation, parseScreenshot, solveAllocation, bestBuildableOption, allBuildableOptions, requirementSignature, computeMissingParts, flagDuplicates, sortForDuplicateReview, TYPE_ICONS, RUNE_TYPES, TAG_NAMES } =
   PradoApp;
 
 const MAX_TIER = 5; // runes go up to Tier 5 in-game; recipes.json defines each waystone once and loadRecipes() expands it across all 5 tiers
@@ -79,6 +79,23 @@ function allocationTagsHtml(prefix, suffix) {
   return affixTagHtml(prefix, false) + affixTagHtml(suffix, true);
 }
 
+// "Deck tag" here means the "+1 Rest"/"+2 Monster" deck-modifier badge -
+// distinct from the trait tags above (affixTagHtml/allocationTagsHtml),
+// which are the bracketed Fortune/Omen indicators. Named and commented
+// explicitly to avoid confusion between the two "tag" concepts, which
+// now appear right next to each other in these same result lines.
+function deckTagHtml(tagName, tagMagnitude) {
+  if (!tagName) return "";
+  return ` <span class="deck-tag">+${tagMagnitude ?? "?"} ${escapeHtml(tagName)}</span>`;
+}
+
+// Plain-text equivalent for <option> labels, which can't render HTML -
+// same reason plainAffixTag exists alongside affixTagHtml above.
+function plainDeckTag(tagName, tagMagnitude) {
+  if (!tagName) return "";
+  return `+${tagMagnitude ?? "?"} ${tagName}`;
+}
+
 // Tracks each waystone's checkbox/quantity across re-renders, keyed by
 // "tier|name" - tier-qualified since a future Tier 2-5 waystone isn't
 // guaranteed to have a name unique across tiers, only within one. Not
@@ -131,6 +148,8 @@ const els = {
   manualType: document.getElementById("manual-type"),
   manualFortune: document.getElementById("manual-fortune"),
   manualOmen: document.getElementById("manual-omen"),
+  manualTagName: document.getElementById("manual-tag-name"),
+  manualTagMagnitude: document.getElementById("manual-tag-magnitude"),
 };
 
 // --- Troubleshooting Mode -------------------------------------------------
@@ -386,6 +405,14 @@ function rowHtml(row, fortuneNames, omenNames) {
           <select data-role="suffix">${affixOptions(omenNames, row.suffix)}</select>
           ${row.suggestedSuffix ? `<button type="button" class="suggestion-chip" data-role="apply-suggestion" data-id="${row.id}" data-field="suffix" data-value="${escapeHtml(row.suggestedSuffix)}">Did you mean ${escapeHtml(row.suggestedSuffix)}?</button>` : ""}
         </label>
+        <label class="affix-field">
+          <span class="affix-label">Tag</span>
+          <select data-role="tagName">${affixOptions(TAG_NAMES, row.tagName)}</select>
+        </label>
+        <label class="affix-field">
+          <span class="affix-label">Magnitude</span>
+          <input type="number" min="1" step="1" data-role="tagMagnitude" value="${row.tagMagnitude ?? ""}" placeholder="e.g. 1" />
+        </label>
       </div>
     </div>`;
 }
@@ -452,14 +479,34 @@ function renderPendingRows() {
     rowEl.querySelector('[data-role="prefix"]').addEventListener("change", (e) => {
       row.prefix = e.target.value || null;
       row.suggestedPrefix = null; // the field's been resolved (or explicitly cleared) either way - stop suggesting
-      row.missingParts = computeMissingParts(row.prefix, row.suffix);
+      row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tagName, row.tagMagnitude);
       row.needsReview = row.missingParts.length > 0;
       refreshDuplicateFlags();
     });
     rowEl.querySelector('[data-role="suffix"]').addEventListener("change", (e) => {
       row.suffix = e.target.value || null;
       row.suggestedSuffix = null;
-      row.missingParts = computeMissingParts(row.prefix, row.suffix);
+      row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tagName, row.tagMagnitude);
+      row.needsReview = row.missingParts.length > 0;
+      refreshDuplicateFlags();
+    });
+    rowEl.querySelector('[data-role="tagName"]').addEventListener("change", (e) => {
+      row.tagName = e.target.value || null;
+      // Selecting Unknown clears magnitude too, and visually resets the
+      // number input to match - same "these two travel together" rule
+      // as the manual-add dialog, so a stale leftover number can't sit
+      // next to an Unknown tag name.
+      if (!row.tagName) {
+        row.tagMagnitude = null;
+        rowEl.querySelector('[data-role="tagMagnitude"]').value = "";
+      }
+      row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tagName, row.tagMagnitude);
+      row.needsReview = row.missingParts.length > 0;
+      refreshDuplicateFlags();
+    });
+    rowEl.querySelector('[data-role="tagMagnitude"]').addEventListener("change", (e) => {
+      row.tagMagnitude = parseInt(e.target.value, 10) || null;
+      row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tagName, row.tagMagnitude);
       row.needsReview = row.missingParts.length > 0;
       refreshDuplicateFlags();
     });
@@ -477,7 +524,7 @@ function renderPendingRows() {
       // needs its own suggestion shown.
       if (field === "prefix") row.suggestedPrefix = null;
       else row.suggestedSuffix = null;
-      row.missingParts = computeMissingParts(row.prefix, row.suffix);
+      row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tagName, row.tagMagnitude);
       row.needsReview = row.missingParts.length > 0;
       refreshDuplicateFlags();
     });
@@ -525,7 +572,7 @@ function refreshDuplicateFlags() {
 els.confirmBtn.addEventListener("click", () => {
   state.pendingRows
     .filter((r) => r.included)
-    .forEach((r) => addToInventory(r.tier, r.type, r.prefix, r.suffix, 1));
+    .forEach((r) => addToInventory(r.tier, r.type, r.prefix, r.suffix, r.tagName, r.tagMagnitude, 1));
   saveInventory();
   state.pendingRows = [];
   screenshotCounter = 0; // fresh numbering for the next review session
@@ -592,6 +639,12 @@ function renderInventory() {
             item.prefix && item.suffix
               ? `${escapeHtml(item.prefix)} ${item.type} Rune of ${escapeHtml(item.suffix)}`
               : `${item.type} Rune (Fortune/Omen unknown)`;
+          // "Deck tag" here means the "+1 Rest"/"+2 Monster" deck-modifier
+          // badge - distinct from the existing bracketed trait tags
+          // ([+Spellbook], <Heal>) shown elsewhere for Fortune/Omen.
+          const deckTag = item.tagName
+            ? ` <span class="deck-tag">+${item.tagMagnitude ?? "?"} ${escapeHtml(item.tagName)}</span>`
+            : ` <span class="deck-tag deck-tag-unknown">Tag unknown</span>`;
           // Only shown when it's actually informative - a real stack (2+
           // identical named runes merged into one row) still needs to be
           // visible, a routine single rune doesn't need a "1" next to it.
@@ -602,7 +655,7 @@ function renderInventory() {
                   ${[1, 2, 3, 4, 5].map((t) => `<option value="${t}" ${t === item.tier ? "selected" : ""}>T${t}</option>`).join("")}
                 </select>
               </td>
-              <td>${iconSvg(item.type)} ${name}${qtyLabel}</td>
+              <td>${iconSvg(item.type)} ${name}${deckTag}${qtyLabel}</td>
             </tr>`;
         })
         .join("");
@@ -625,12 +678,20 @@ function renderInventory() {
       const item = state.inventory[oldKey];
       if (!item || newTier === item.tier) return;
 
-      const newKey = itemKey(newTier, item.type, item.prefix, item.suffix);
+      const newKey = itemKey(newTier, item.type, item.prefix, item.suffix, item.tagName, item.tagMagnitude);
       delete state.inventory[oldKey];
       if (state.inventory[newKey]) {
         state.inventory[newKey].count += item.count;
       } else {
-        state.inventory[newKey] = { tier: newTier, type: item.type, prefix: item.prefix, suffix: item.suffix, count: item.count };
+        state.inventory[newKey] = {
+          tier: newTier,
+          type: item.type,
+          prefix: item.prefix,
+          suffix: item.suffix,
+          tagName: item.tagName,
+          tagMagnitude: item.tagMagnitude,
+          count: item.count,
+        };
       }
       saveInventory();
       refreshInventoryViews();
@@ -1216,17 +1277,18 @@ function renderResults() {
                 // Split across multiple stacks - flat text, no "change"
                 // affordance (see resolveTypeAllocation for why).
                 const parts = res.allocations
-                  .map((a) => `${a.count}× ${stackLabel(a.prefix, a.suffix)}${allocationTagsHtml(a.prefix, a.suffix)}`)
+                  .map((a) => `${a.count}× ${stackLabel(a.prefix, a.suffix)}${allocationTagsHtml(a.prefix, a.suffix)}${deckTagHtml(a.tagName, a.tagMagnitude)}`)
                   .join(" + ");
                 return `<p class="used-line">${typePrefix}${parts}</p>`;
               }
               const a = res.allocations[0];
               const tag = allocationTagsHtml(a.prefix, a.suffix);
+              const deckTag = deckTagHtml(a.tagName, a.tagMagnitude);
               const changeLink =
                 res.alternatives && res.alternatives.length > 1
                   ? `<button type="button" class="link-btn" data-role="change-alloc" data-card="${cardIdx}" data-unit="${unitIdx}" data-type="${t}">change</button>`
                   : "";
-              return `<p class="used-line">${typePrefix}${stackLabel(a.prefix, a.suffix)}${tag}${changeLink}</p>`;
+              return `<p class="used-line">${typePrefix}${stackLabel(a.prefix, a.suffix)}${tag}${deckTag}${changeLink}</p>`;
             })
             .join("");
           return `<div class="result-unit-built"><span class="built-badge">✓</span>${usedLines}</div>`;
@@ -1344,7 +1406,7 @@ function buildUnit(unit, requirement, tier) {
     const candidates = getFilteredTierTypeCandidates(tier, type, fortuneFilters[tier], omenFilters[tier]);
     const resolution = resolveTypeAllocation(candidates, neededCount);
     resolution.allocations.forEach((a) => {
-      addToInventory(tier, type, a.prefix, a.suffix, -a.count);
+      addToInventory(tier, type, a.prefix, a.suffix, a.tagName, a.tagMagnitude, -a.count);
     });
     unit.resolutions[type] = resolution;
   });
@@ -1382,11 +1444,17 @@ function formatChecklistItemLines(item) {
       // brevity trade, it's losing the information entirely.
       const typePrefix = `${type}: `;
       if (res.allocations.length > 1) {
-        const parts = res.allocations.map((a) => `${a.count}x ${plainStackLabel(a.prefix, a.suffix)}`).join(" + ");
+        const parts = res.allocations
+          .map((a) => {
+            const deckTag = plainDeckTag(a.tagName, a.tagMagnitude);
+            return `${a.count}x ${plainStackLabel(a.prefix, a.suffix)}${deckTag ? " " + deckTag : ""}`;
+          })
+          .join(" + ");
         return `${typePrefix}${parts}`;
       }
       const a = res.allocations[0];
-      return `${typePrefix}${plainStackLabel(a.prefix, a.suffix)}`;
+      const deckTag = plainDeckTag(a.tagName, a.tagMagnitude);
+      return `${typePrefix}${plainStackLabel(a.prefix, a.suffix)}${deckTag ? " " + deckTag : ""}`;
     })
     .join(" · ");
 }
@@ -1589,7 +1657,8 @@ function showChangeDropdown(linkEl, cardIdx, unitIdx, type) {
   const options = res.alternatives
     .map((alt) => {
       const tags = `${plainAffixTag(alt.prefix, false)} ${plainAffixTag(alt.suffix, true)}`.trim();
-      const label = `${stackLabel(alt.prefix, alt.suffix)} (${alt.count} left)${tags ? " " + tags : ""}`;
+      const deckTag = plainDeckTag(alt.tagName, alt.tagMagnitude);
+      const label = `${stackLabel(alt.prefix, alt.suffix)} (${alt.count} left)${tags ? " " + tags : ""}${deckTag ? " " + deckTag : ""}`;
       const selected = alt.key === current.key ? "selected" : "";
       return `<option value="${escapeHtml(alt.key)}" ${selected}>${label}</option>`;
     })
@@ -1605,8 +1674,8 @@ function showChangeDropdown(linkEl, cardIdx, unitIdx, type) {
     if (!chosen || chosen.key === current.key) return;
     // Undo the old allocation, apply the new one - both at the exact
     // count this line needed, never the whole stack.
-    addToInventory(resultsState.tier, type, current.prefix, current.suffix, current.count);
-    addToInventory(resultsState.tier, type, chosen.prefix, chosen.suffix, -current.count);
+    addToInventory(resultsState.tier, type, current.prefix, current.suffix, current.tagName, current.tagMagnitude, current.count);
+    addToInventory(resultsState.tier, type, chosen.prefix, chosen.suffix, chosen.tagName, chosen.tagMagnitude, -current.count);
     unit.resolutions[type] = { ...res, allocations: [{ ...chosen, count: current.count }] };
     saveInventory();
     refreshInventoryViews();
@@ -1632,6 +1701,23 @@ RUNE_TYPES.forEach((t) => {
   opt.textContent = t;
   els.manualType.appendChild(opt);
 });
+// Tag also doesn't depend on affixState, so it populates once here too.
+// Unlike Fortune/Omen (confirmed every rune definitely has both), it's
+// genuinely unclear whether every rune has a tag at all - so unlike the
+// manual-add dialog's other dropdowns, this one keeps a real "None"
+// option rather than forcing a selection.
+(() => {
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "None";
+  els.manualTagName.appendChild(none);
+  TAG_NAMES.forEach((t) => {
+    const opt = document.createElement("option");
+    opt.value = t;
+    opt.textContent = t;
+    els.manualTagName.appendChild(opt);
+  });
+})();
 
 function openManualAddDialog() {
   // Fortune/Omen depend on affixState, which loads asynchronously (see
@@ -1645,6 +1731,8 @@ function openManualAddDialog() {
   const omenNames = (affixState.data?.omens?.map((o) => o.name) || []).sort();
   els.manualFortune.innerHTML = affixOptions(fortuneNames, null, false);
   els.manualOmen.innerHTML = affixOptions(omenNames, null, false);
+  els.manualTagName.value = "";
+  els.manualTagMagnitude.value = "";
   els.manualAddStatus.textContent = "";
   els.manualAddDialog.showModal();
 }
@@ -1657,8 +1745,13 @@ els.manualAddSubmit.addEventListener("click", () => {
   const type = els.manualType.value;
   const prefix = els.manualFortune.value || null;
   const suffix = els.manualOmen.value || null;
+  // If Tag is left on "None", magnitude is forced to null regardless of
+  // whatever's sitting in that input - avoids an inconsistent state
+  // where a stray number is entered but no tag name is actually chosen.
+  const tagName = els.manualTagName.value || null;
+  const tagMagnitude = tagName ? parseInt(els.manualTagMagnitude.value, 10) || null : null;
 
-  addToInventory(tier, type, prefix, suffix, 1);
+  addToInventory(tier, type, prefix, suffix, tagName, tagMagnitude, 1);
   saveInventory();
   refreshInventoryViews();
 
@@ -1673,9 +1766,12 @@ els.manualAddSubmit.addEventListener("click", () => {
   // makes this a genuine check against what was entered vs. what was
   // meant, not just a partial one. Fortune/Omen can no longer come back
   // null from this dialog (see affixOptions' includeUnknown), so unlike
-  // the OCR review flow there's no "unknown" case left to account for.
+  // the OCR review flow there's no "unknown" case left to account for -
+  // Tag is the one field here that CAN still be "None", since that's a
+  // real, expected choice for this dropdown specifically.
+  const tagSuffix = tagName ? ` (+${tagMagnitude ?? "?"} ${tagName})` : "";
   els.manualAddStatus.textContent =
-    `Added: Tier ${tier} ${prefix} ${type} Rune of ${suffix}. Fields stay as-is - add another, or close when done.`;
+    `Added: Tier ${tier} ${prefix} ${type} Rune of ${suffix}${tagSuffix}. Fields stay as-is - add another, or close when done.`;
 });
 
 // --- Init -----------------------------------------------------------------

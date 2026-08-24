@@ -958,6 +958,36 @@ th {
   margin: 0 0.15rem;
 }
 
+/* Deck-modifier tag ("+1 Rest", "+2 Monster") - a small filled badge
+   rather than plain colored text, so it reads as visually distinct from
+   the bracketed trait tags above wherever the two appear near each
+   other. --duplicate is otherwise only used for the OCR-review
+   duplicate-halo glow, an unrelated context, so reusing its purple tone
+   here doesn't create any conflicting meaning. */
+.deck-tag {
+  display: inline-block;
+  background: rgba(154, 111, 176, 0.22);
+  color: var(--duplicate);
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  margin: 0 0.15rem;
+}
+
+/* Muted/outlined rather than filled, so an unresolved tag doesn't read
+   as visually equivalent to a real, confirmed value at a glance. */
+.deck-tag-unknown {
+  display: inline-block;
+  background: none;
+  border: 1px dashed var(--text-muted);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  margin: 0 0.15rem;
+}
+
 .build-selected-btn {
   margin-bottom: 1.25rem;
 }

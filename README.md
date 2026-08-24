@@ -43,17 +43,21 @@ has to clear.
 > double-click-to-open that breaks.
 
 1. Open the page (via a local server, or GitHub Pages once deployed).
-2. Screenshot your rune inventory in chunks. Scroll from the top of your
-   list downward, capturing each shot until the last rune you captured
-   fully disappears off the top of the screen before the next one - a
-   floating tier label covers whatever line sits at the very top of the
-   screen, so scrolling the other direction leaves that line unreadable
-   every time. Leaving gaps is the one real risk - a missed rune won't
-   show up anywhere, and there's no way to know it's gone. Overlap
-   isn't: your final screenshot will likely re-capture a few runes you
-   already have once you hit the end of your list and can't scroll
-   further, but any duplicates get flagged and unchecked automatically,
-   so there's nothing to fix beyond confirming the flag was right.
+2. Screenshot your rune inventory in chunks. Navigate to Runecrafting >
+   select an empty rune slot before screenshotting - the plain My
+   Inventory screen looks similar but doesn't show the colored tag
+   badges ("+1 Rest", "+2 Monster", etc.) at all. Scroll from the top of
+   your list downward, capturing each shot until the last rune you
+   captured fully disappears off the top of the screen before the next
+   one - a floating tier label covers whatever line sits at the very
+   top of the screen, so scrolling the other direction leaves that line
+   unreadable every time. Leaving gaps is the one real risk - a missed
+   rune won't show up anywhere, and there's no way to know it's gone.
+   Overlap isn't: your final screenshot will likely re-capture a few
+   runes you already have once you hit the end of your list and can't
+   scroll further, but any duplicates get flagged and unchecked
+   automatically, so there's nothing to fix beyond confirming the flag
+   was right.
 3. Upload your screenshots - select several at once (on mobile, tap
    each photo to multi-select before confirming), or upload them one at
    a time; either way they pool into the same review list rather than
@@ -338,6 +342,18 @@ where one clearly applies; drop the sign for a triggered/conditional
 effect that isn't a simple increase or decrease (e.g. "Weapon
 Reflect" has no clean direction to show).
 Names can be multi-word ("Last Rites") - matching handles that natively.
+
+## Contributing rune tags
+
+Each rune can also carry a deck-modifier tag - the colored badge shown
+as "+1 Rest" or "+2 Monster" (only visible via Runecrafting > an empty
+rune slot, not the plain My Inventory screen - see step 1 above).
+Unlike Fortune/Omen, this is a small, fixed vocabulary hardcoded as
+`TAG_NAMES` near the top of `app.js`, alongside `RUNE_TYPES`, rather
+than a JSON file - add a new one there if the game introduces one.
+"Mining" is currently flagged there as unconfirmed (seen mentioned but
+not verified firsthand as of when it was added) - worth removing if it
+never actually turns up, or confirming if it does.
 
 ## Known limitations
 

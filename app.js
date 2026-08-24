@@ -49,6 +49,14 @@ const CONFIG = {
 
 const RUNE_TYPES = ["City", "Flower", "Mask", "River", "Night", "Mud", "Song"];
 
+// The known deck-modifier tag names seen on individual runes (shown as a
+// colored badge like "+1 Rest" or "+2 Monster" - only visible via
+// Runecrafting > an empty rune slot, NOT the plain My Inventory screen).
+// "Mining" is unconfirmed - flagged as seen once but not verified firsthand
+// as of when this was added; worth removing if it never actually turns up,
+// or confirming if it does.
+const TAG_NAMES = ["Event", "Rest", "Foraging", "Monster", "Wild", "Shrine", "Treasure", "Mining"];
+
 // Small hand-drawn glyph per rune type, used since we can't reuse the
 // game's own art. Single-color line icons, currentColor-tinted.
 const TYPE_ICONS = {
@@ -65,25 +73,32 @@ const TYPE_ICONS = {
 // State
 // ---------------------------------------------------------------------
 const state = {
-  // Keyed by tier|type|prefix|suffix - see itemKey(). Each value is
-  // { tier, type, prefix, suffix, count }. Items with no prefix/suffix
-  // (OCR couldn't read a name, or a manual adjustment with no name
-  // specified) share the "Unknown|Unknown" bucket per tier+type.
+  // Keyed by tier|type|prefix|suffix|tagName|tagMagnitude - see itemKey().
+  // Each value is { tier, type, prefix, suffix, tagName, tagMagnitude,
+  // count }. Items with no prefix/suffix (OCR couldn't read a name, or a
+  // manual adjustment with no name specified) share the "Unknown|Unknown"
+  // bucket per tier+type+tag. Same for tagName/tagMagnitude - no tag
+  // read/entered falls into the tag-Unknown bucket for that combination.
   inventory: loadInventory(),
   pendingRows: [], // rows from the most recent screenshot, awaiting confirm
   waystoneData: null, // loaded from recipes.json
 };
 
-function itemKey(tier, type, prefix, suffix) {
-  return `${tier}|${type}|${prefix || "Unknown"}|${suffix || "Unknown"}`;
+function itemKey(tier, type, prefix, suffix, tagName, tagMagnitude) {
+  return `${tier}|${type}|${prefix || "Unknown"}|${suffix || "Unknown"}|${tagName || "Unknown"}|${tagMagnitude ?? "Unknown"}`;
 }
 
 /**
  * Normalizes inventory data to the current { tier, type, prefix, suffix,
- * count } shape. Handles the pre-prefix/suffix format, where values were
- * plain counts keyed by "tier|type" - those fold into each tier+type's
- * Unknown/Unknown bucket so existing tracked totals survive the upgrade.
- * Already-current-format entries pass through unchanged.
+ * tagName, tagMagnitude, count } shape. Handles the pre-prefix/suffix
+ * format, where values were plain counts keyed by "tier|type" - those
+ * fold into that tier+type's Unknown/Unknown/no-tag bucket. Also
+ * re-keys any entry saved before tag tracking existed (has tier/type/
+ * prefix/suffix/count but no tagName/tagMagnitude) under the current
+ * itemKey signature, rather than passing its old key through unchanged -
+ * tag fields default to null/Unknown for these, but the key itself has
+ * to be recomputed so the entry stays correctly addressable and merges
+ * properly with anything added later under the new scheme.
  */
 function migrateInventory(raw) {
   const migrated = {};
@@ -92,13 +107,27 @@ function migrateInventory(raw) {
       const [tierStr, type] = key.split("|");
       const tier = parseInt(tierStr, 10);
       if (!type || Number.isNaN(tier)) return;
-      const newKey = itemKey(tier, type, null, null);
+      const newKey = itemKey(tier, type, null, null, null, null);
       if (!migrated[newKey]) {
-        migrated[newKey] = { tier, type, prefix: null, suffix: null, count: 0 };
+        migrated[newKey] = { tier, type, prefix: null, suffix: null, tagName: null, tagMagnitude: null, count: 0 };
       }
       migrated[newKey].count += value;
     } else if (value && typeof value === "object" && typeof value.count === "number") {
-      migrated[key] = value;
+      const tagName = value.tagName || null;
+      const tagMagnitude = value.tagMagnitude ?? null;
+      const newKey = itemKey(value.tier, value.type, value.prefix, value.suffix, tagName, tagMagnitude);
+      if (!migrated[newKey]) {
+        migrated[newKey] = {
+          tier: value.tier,
+          type: value.type,
+          prefix: value.prefix || null,
+          suffix: value.suffix || null,
+          tagName,
+          tagMagnitude,
+          count: 0,
+        };
+      }
+      migrated[newKey].count += value.count;
     }
   });
   return migrated;
@@ -119,10 +148,18 @@ function saveInventory() {
 
 /** Adds (or subtracts, for a negative delta) to a specific named item's
  * count, creating the entry if needed and removing it if it hits zero. */
-function addToInventory(tier, type, prefix, suffix, delta) {
-  const key = itemKey(tier, type, prefix, suffix);
+function addToInventory(tier, type, prefix, suffix, tagName, tagMagnitude, delta) {
+  const key = itemKey(tier, type, prefix, suffix, tagName, tagMagnitude);
   if (!state.inventory[key]) {
-    state.inventory[key] = { tier, type, prefix: prefix || null, suffix: suffix || null, count: 0 };
+    state.inventory[key] = {
+      tier,
+      type,
+      prefix: prefix || null,
+      suffix: suffix || null,
+      tagName: tagName || null,
+      tagMagnitude: tagMagnitude ?? null,
+      count: 0,
+    };
   }
   state.inventory[key].count = Math.max(0, state.inventory[key].count + delta);
   if (state.inventory[key].count === 0) delete state.inventory[key];
@@ -162,7 +199,14 @@ function getFilteredTierTypeCandidates(tier, type, allowedFortunes, avoidedOmens
     if (item.tier !== tier || item.type !== type || item.count <= 0) return;
     if (allowedFortunes && item.prefix && !allowedFortunes.has(item.prefix)) return;
     if (avoidedOmens && item.suffix && avoidedOmens.has(item.suffix)) return;
-    candidates.push({ key, prefix: item.prefix, suffix: item.suffix, count: item.count });
+    candidates.push({
+      key,
+      prefix: item.prefix,
+      suffix: item.suffix,
+      tagName: item.tagName,
+      tagMagnitude: item.tagMagnitude,
+      count: item.count,
+    });
   });
   return candidates;
 }
@@ -197,7 +241,16 @@ function resolveTypeAllocation(candidates, neededCount) {
     const sorted = [...sufficientSingle].sort((a, b) => b.count - a.count);
     const chosen = sorted[0];
     return {
-      allocations: [{ key: chosen.key, prefix: chosen.prefix, suffix: chosen.suffix, count: neededCount }],
+      allocations: [
+        {
+          key: chosen.key,
+          prefix: chosen.prefix,
+          suffix: chosen.suffix,
+          tagName: chosen.tagName,
+          tagMagnitude: chosen.tagMagnitude,
+          count: neededCount,
+        },
+      ],
       alternatives: sorted.length > 1 ? sorted : null,
       insufficientBy: 0,
     };
@@ -210,7 +263,14 @@ function resolveTypeAllocation(candidates, neededCount) {
     if (remaining <= 0) break;
     const take = Math.min(c.count, remaining);
     if (take > 0) {
-      allocations.push({ key: c.key, prefix: c.prefix, suffix: c.suffix, count: take });
+      allocations.push({
+        key: c.key,
+        prefix: c.prefix,
+        suffix: c.suffix,
+        tagName: c.tagName,
+        tagMagnitude: c.tagMagnitude,
+        count: take,
+      });
       remaining -= take;
     }
   }
@@ -369,10 +429,15 @@ function suggestAffixGuess(scopeText, knownNames) {
 
 /** Shared between initial parsing and live UI corrections, so both
  * compute "what still needs review" identically. */
-function computeMissingParts(prefix, suffix) {
+function computeMissingParts(prefix, suffix, tagName, tagMagnitude) {
   const missingParts = [];
   if (!prefix) missingParts.push("Fortune");
   if (!suffix) missingParts.push("Omen");
+  // A tag genuinely needs both pieces together - a name with no
+  // magnitude (or vice versa) is just as incomplete as having neither,
+  // since the in-game badge always shows them as one unit ("+1 Rest",
+  // never just "Rest" alone).
+  if (!tagName || tagMagnitude == null) missingParts.push("Tag");
   return missingParts;
 }
 
@@ -434,6 +499,15 @@ function clusterAndExtract(lines, imgHeight, affixes) {
   const omenNames = affixes?.omens?.map((o) => o.name) || [];
   const prefixMatcher = buildAffixMatcher(fortuneNames);
   const suffixMatcher = buildAffixMatcher(omenNames);
+  // Tag badges read like "+1 Rest" or "+2 Monster" - a leading number
+  // and a name, matched together as one unit against the known tag
+  // vocabulary (TAG_NAMES) rather than reusing the plain name-only
+  // affix matcher above, since a tag genuinely needs both pieces, not
+  // just the name. The "+" is optional in the pattern - OCR can just as
+  // easily drop or misread that one character as get it right, and the
+  // number+name combination is already distinctive enough on its own
+  // without requiring it.
+  const tagRegex = new RegExp(`\\+?\\s*(\\d+)\\s*(${TAG_NAMES.join("|")})\\b`, "i");
 
   const tierHeaders = []; // { tier, top }
   const entries = [];
@@ -470,20 +544,31 @@ function clusterAndExtract(lines, imgHeight, affixes) {
     const suggestedPrefix = prefix ? null : suggestAffixGuess(beforeType, fortuneNames);
     const suggestedSuffix = suffix ? null : suggestAffixGuess(afterType, omenNames);
 
+    // The tag badge sits visually below the name, but the whole cluster
+    // is searched (not just afterType) rather than assuming OCR line
+    // order always puts it strictly after the suffix - the "+N TagName"
+    // pattern is distinctive enough that searching the full blob doesn't
+    // risk a false match against unrelated text elsewhere in the entry.
+    const tagMatch = blob.match(tagRegex);
+    const tagName = tagMatch ? TAG_NAMES.find((t) => t.toLowerCase() === tagMatch[2].toLowerCase()) : null;
+    const tagMagnitude = tagMatch ? parseInt(tagMatch[1], 10) : null;
+
     const confidence = cluster.reduce((sum, l) => sum + l.confidence, 0) / cluster.length;
     // What actually needs a human's attention now is whether the fields
     // that matter resolved cleanly against known vocabulary - not
     // Tesseract's raw per-line confidence, which gets dragged down by
     // junk text (a tag chip, a coin value) that never mattered in the
     // first place and gets discarded regardless. Type is guaranteed
-    // present here (the entry wouldn't exist otherwise); prefix/suffix
-    // are the two that can genuinely come back unmatched.
-    const missingParts = computeMissingParts(prefix, suffix);
+    // present here (the entry wouldn't exist otherwise); prefix/suffix/
+    // tag are the ones that can genuinely come back unmatched.
+    const missingParts = computeMissingParts(prefix, suffix, tagName, tagMagnitude);
 
     entries.push({
       type,
       prefix,
       suffix,
+      tagName,
+      tagMagnitude,
       suggestedPrefix,
       suggestedSuffix,
       blob,
@@ -518,6 +603,8 @@ function clusterAndExtract(lines, imgHeight, affixes) {
       tier,
       prefix: e.prefix,
       suffix: e.suffix,
+      tagName: e.tagName,
+      tagMagnitude: e.tagMagnitude,
       suggestedPrefix: e.suggestedPrefix,
       suggestedSuffix: e.suggestedSuffix,
       rawText: e.blob,
@@ -559,8 +646,13 @@ function flagDuplicates(rows) {
 
   const buckets = {};
   rows.forEach((r) => {
-    if (!r.prefix || !r.suffix) return;
-    const key = `${r.tier}|${r.type}|${r.prefix}|${r.suffix}`;
+    // Same "exclude unresolved fields from matching" rationale as
+    // prefix/suffix - two rows both showing an unresolved tag could be
+    // genuinely different runes that each just failed to read, not
+    // actual duplicates, so they're excluded rather than risk a false
+    // positive.
+    if (!r.prefix || !r.suffix || !r.tagName || r.tagMagnitude == null) return;
+    const key = `${r.tier}|${r.type}|${r.prefix}|${r.suffix}|${r.tagName}|${r.tagMagnitude}`;
     (buckets[key] = buckets[key] || []).push(r);
   });
 
@@ -749,6 +841,7 @@ function solveAllocation(selectedWaystones, inventoryForTier) {
 export const PradoApp = {
   CONFIG,
   RUNE_TYPES,
+  TAG_NAMES,
   TYPE_ICONS,
   state,
   itemKey,
