@@ -1034,8 +1034,14 @@ th {
 @media (max-width: 480px) {
   .header-toggles {
     position: static;
+    flex-direction: row;
+    justify-content: center;
     align-items: center;
-    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 1rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--rule);
   }
 
   .manual-add-fields {
