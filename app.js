@@ -309,8 +309,15 @@ async function parseScreenshot(imgEl, onProgress, affixes) {
     canvas.width = naturalWidth * scale;
     canvas.height = naturalHeight * scale;
     const ctx = canvas.getContext("2d");
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
+    // Smoothing was previously enabled, aiming for a visually clean
+    // upscale - but smoothing blurs/interpolates pixels, which softens
+    // exactly the sharp text-edge contrast OCR relies on most. That
+    // hits small, low-contrast text hardest - like the colored-pill
+    // deck-tag badge, which showed a real, measured ~40% failure rate
+    // reading correctly while plain text nearby read fine. Disabled
+    // here for crisper edges instead, a well-established OCR
+    // preprocessing preference over smooth interpolation.
+    ctx.imageSmoothingEnabled = false;
     ctx.drawImage(imgEl, 0, 0, canvas.width, canvas.height);
     ocrInput = canvas;
   }
