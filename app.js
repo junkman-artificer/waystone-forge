@@ -309,15 +309,19 @@ async function parseScreenshot(imgEl, onProgress, affixes) {
     canvas.width = naturalWidth * scale;
     canvas.height = naturalHeight * scale;
     const ctx = canvas.getContext("2d");
-    // Smoothing was previously enabled, aiming for a visually clean
-    // upscale - but smoothing blurs/interpolates pixels, which softens
-    // exactly the sharp text-edge contrast OCR relies on most. That
-    // hits small, low-contrast text hardest - like the colored-pill
-    // deck-tag badge, which showed a real, measured ~40% failure rate
-    // reading correctly while plain text nearby read fine. Disabled
-    // here for crisper edges instead, a well-established OCR
-    // preprocessing preference over smooth interpolation.
-    ctx.imageSmoothingEnabled = false;
+    // Tried disabling smoothing here on the theory that sharp edges
+    // help OCR more than smooth interpolation - measured WORSE in
+    // practice (8/15 tag-read failures vs. 6/15 with smoothing on),
+    // so reverted. Likely explanation: this UI's small text is
+    // probably rendered with sub-pixel anti-aliasing to begin with,
+    // and nearest-neighbor-style scaling (no smoothing) blockifies
+    // that detail away rather than preserving it, which apparently
+    // costs Tesseract more than sharp edges gain it for text this
+    // small. Left as a cautionary note against re-trying this same
+    // fix without new evidence - the "sharp edges help OCR" principle
+    // is real in general, but demonstrably didn't hold here.
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     ctx.drawImage(imgEl, 0, 0, canvas.width, canvas.height);
     ocrInput = canvas;
   }
