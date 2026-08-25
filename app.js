@@ -29,7 +29,23 @@ const CONFIG = {
   // to read small UI text more reliably at a larger size. 2 doubles both
   // dimensions (4x the pixels), which meaningfully slows OCR down; set to
   // 1 to disable if it's not helping enough to be worth the wait.
-  OCR_UPSCALE_FACTOR: 2,
+  //
+  // Bumped from 2 to 2.5 specifically to address one of two distinct
+  // deck-tag OCR failure modes found via the raw per-line debug output
+  // (Troubleshooting Mode): sometimes Tesseract detects the small
+  // colored-pill tag badge as a text region but reads it at very low
+  // confidence (seen as low as 12%, producing pure garbage like
+  // "7 MBe 109") - more resolution genuinely tends to help resolve
+  // character shapes Tesseract can barely make out. A separate failure
+  // mode also confirmed in that same debug output - Tesseract not
+  // detecting any text region there at all - is NOT expected to improve
+  // from this change, since that's a detection failure, not a
+  // resolution/misread problem; a moderate step (not a larger jump to
+  // 3, which would be 9x the pixels instead of ~6x) since the previous
+  // change to this same OCR pipeline made things measurably worse
+  // rather than better, so this is being tried cautiously rather than
+  // aggressively.
+  OCR_UPSCALE_FACTOR: 2.5,
   // Safety cap on how many allocation attempts the recipe solver will try
   // before giving up, so a huge multi-waystone query can't hang the tab.
   SOLVER_NODE_LIMIT: 200000,
