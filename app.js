@@ -45,7 +45,25 @@ const CONFIG = {
   // change to this same OCR pipeline made things measurably worse
   // rather than better, so this is being tried cautiously rather than
   // aggressively.
+  //
+  // Confirmed via a real re-test to have made literally zero difference
+  // to the deck-tag failure rate - left at 2.5 rather than reverted
+  // (unlike the smoothing attempt, this one didn't make anything WORSE,
+  // so there's no harm in leaving it and no strong reason to revert it
+  // either), but noted here that resolution alone isn't the bottleneck.
   OCR_UPSCALE_FACTOR: 2.5,
+  // Converts the upscaled screenshot to grayscale before OCR. Tesseract's
+  // text/background separation is fundamentally luminance-based, not
+  // hue-based - two colors can look completely distinct to a human eye
+  // while sitting at a similar brightness, which is exactly the kind of
+  // mismatch that could confuse that separation step even though a
+  // person would never confuse the colors visually. Targets the deck-tag
+  // badge specifically, whose colored-pill background is the one thing
+  // in these screenshots that isn't plain light-text-on-dark-background
+  // like everywhere else. Set to false to isolate whether this step
+  // specifically helped, hurt, or made no difference, the same way
+  // OCR_UPSCALE_FACTOR can be toggled to isolate its own effect.
+  OCR_GRAYSCALE: true,
   // Safety cap on how many allocation attempts the recipe solver will try
   // before giving up, so a huge multi-waystone query can't hang the tab.
   SOLVER_NODE_LIMIT: 200000,
@@ -320,7 +338,7 @@ async function parseScreenshot(imgEl, onProgress, affixes) {
   const naturalWidth = imgEl.naturalWidth || imgEl.width;
   const naturalHeight = imgEl.naturalHeight || imgEl.height;
   let ocrInput = imgEl;
-  if (scale !== 1) {
+  if (scale !== 1 || CONFIG.OCR_GRAYSCALE) {
     const canvas = document.createElement("canvas");
     canvas.width = naturalWidth * scale;
     canvas.height = naturalHeight * scale;
@@ -339,6 +357,25 @@ async function parseScreenshot(imgEl, onProgress, affixes) {
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(imgEl, 0, 0, canvas.width, canvas.height);
+
+    if (CONFIG.OCR_GRAYSCALE) {
+      // Standard perceptually-weighted luminance formula (ITU-R BT.601:
+      // 0.299R + 0.587G + 0.114B) - reflects human eyes' greater
+      // sensitivity to green than red or blue, the well-established
+      // way to collapse color to a single brightness value. Every
+      // pixel's R/G/B channels are all set to this same computed gray
+      // value; alpha is left untouched.
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const px = imageData.data;
+      for (let i = 0; i < px.length; i += 4) {
+        const gray = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+        px[i] = gray;
+        px[i + 1] = gray;
+        px[i + 2] = gray;
+      }
+      ctx.putImageData(imageData, 0, 0);
+    }
+
     ocrInput = canvas;
   }
 
