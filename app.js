@@ -36,22 +36,22 @@ const CONFIG = {
   // colored-pill tag badge as a text region but reads it at very low
   // confidence (seen as low as 12%, producing pure garbage like
   // "7 MBe 109") - more resolution genuinely tends to help resolve
-  // character shapes Tesseract can barely make out. A separate failure
-  // mode also confirmed in that same debug output - Tesseract not
-  // detecting any text region there at all - is NOT expected to improve
-  // from this change, since that's a detection failure, not a
-  // resolution/misread problem; a moderate step (not a larger jump to
-  // 3, which would be 9x the pixels instead of ~6x) since the previous
-  // change to this same OCR pipeline made things measurably worse
-  // rather than better, so this is being tried cautiously rather than
-  // aggressively.
+  // character shapes Tesseract can barely make out.
   //
-  // Confirmed via a real re-test to have made literally zero difference
-  // to the deck-tag failure rate - left at 2.5 rather than reverted
-  // (unlike the smoothing attempt, this one didn't make anything WORSE,
-  // so there's no harm in leaving it and no strong reason to revert it
-  // either), but noted here that resolution alone isn't the bottleneck.
-  OCR_UPSCALE_FACTOR: 2.5,
+  // 2 -> 2.5 measured literally zero difference on the same known test
+  // rows - real evidence that resolution wasn't the binding constraint
+  // at that increment. Pushed further to 4 rather than another small
+  // step, at explicit request accepting the real speed cost (16x the
+  // pixels vs. the original, a meaningfully heavier OCR pass) - a
+  // bigger jump actually tests whether there's a threshold effect
+  // (the tag text sitting below some minimum pixel-height Tesseract
+  // needs to resolve character shapes at all) that a small increment
+  // wouldn't have crossed, rather than just repeating the same
+  // inconclusive small-step result. Still not expected to help the
+  // separate "Tesseract detects no text region there at all" failure
+  // mode, since that's a detection failure rather than a resolution
+  // problem.
+  OCR_UPSCALE_FACTOR: 4,
   // Converts the upscaled screenshot to grayscale before OCR. Tesseract's
   // text/background separation is fundamentally luminance-based, not
   // hue-based - two colors can look completely distinct to a human eye
@@ -63,6 +63,11 @@ const CONFIG = {
   // like everywhere else. Set to false to isolate whether this step
   // specifically helped, hurt, or made no difference, the same way
   // OCR_UPSCALE_FACTOR can be toggled to isolate its own effect.
+  //
+  // Confirmed via a real re-test to genuinely help - deck-tag failures
+  // roughly halved (6/15 down to 3/15 on the same known test rows),
+  // consistent with the theory that at least some of the failures were
+  // a luminance-contrast problem specific to certain badge colors.
   OCR_GRAYSCALE: true,
   // Safety cap on how many allocation attempts the recipe solver will try
   // before giving up, so a huge multi-waystone query can't hang the tab.
