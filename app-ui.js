@@ -294,8 +294,12 @@ els.fileInput.addEventListener("change", async (e) => {
       els.progress.textContent = `${prefix}Reading… 0%`;
       const { rows, rawLines } = await parseScreenshot(
         img,
-        (pct) => {
-          els.progress.textContent = `${prefix}Reading… ${pct}%`;
+        (pct, phase) => {
+          if (phase?.phase === "tagRetry") {
+            els.progress.textContent = `${prefix}Refining ${phase.total} tag${phase.total === 1 ? "" : "s"}… ${phase.current}/${phase.total}`;
+          } else {
+            els.progress.textContent = `${prefix}Reading… ${pct}%`;
+          }
         },
         affixState.data
       );

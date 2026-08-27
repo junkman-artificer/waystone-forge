@@ -30,28 +30,21 @@ const CONFIG = {
   // dimensions (4x the pixels), which meaningfully slows OCR down; set to
   // 1 to disable if it's not helping enough to be worth the wait.
   //
-  // Bumped from 2 to 2.5 specifically to address one of two distinct
-  // deck-tag OCR failure modes found via the raw per-line debug output
-  // (Troubleshooting Mode): sometimes Tesseract detects the small
-  // colored-pill tag badge as a text region but reads it at very low
-  // confidence (seen as low as 12%, producing pure garbage like
-  // "7 MBe 109") - more resolution genuinely tends to help resolve
-  // character shapes Tesseract can barely make out.
-  //
-  // 2 -> 2.5 measured literally zero difference on the same known test
-  // rows - real evidence that resolution wasn't the binding constraint
-  // at that increment. Pushed further to 4 rather than another small
-  // step, at explicit request accepting the real speed cost (16x the
-  // pixels vs. the original, a meaningfully heavier OCR pass) - a
-  // bigger jump actually tests whether there's a threshold effect
-  // (the tag text sitting below some minimum pixel-height Tesseract
-  // needs to resolve character shapes at all) that a small increment
-  // wouldn't have crossed, rather than just repeating the same
-  // inconclusive small-step result. Still not expected to help the
-  // separate "Tesseract detects no text region there at all" failure
-  // mode, since that's a detection failure rather than a resolution
-  // problem.
-  OCR_UPSCALE_FACTOR: 4,
+  // Tried 2 -> 2.5 -> 4 in sequence, each measured against the same known
+  // 15-row deck-tag test case - both increases produced literally zero
+  // improvement (same exact rows failed at all three settings), real
+  // evidence resolution isn't the bottleneck for what's left. 4
+  // additionally introduced a genuine, narrow downside on one specific
+  // row: a Fortune name that read as garbled-but-textually-close-enough
+  // to trigger a "Did you mean X?" suggestion at 2.5 instead read as a
+  // more Tesseract-confident but LESS textually similar misread at 4,
+  // losing that suggestion. Reverted to 2.5 given 4 cost real speed
+  // (16x the original pixels) for zero tag-reading benefit and this one
+  // regression. This lever now looks genuinely exhausted for the
+  // remaining tag failures - not worth pushing further without a new
+  // reason to expect it would help, unlike grayscale which had a clear,
+  // confirmed mechanism behind it.
+  OCR_UPSCALE_FACTOR: 2.5,
   // Converts the upscaled screenshot to grayscale before OCR. Tesseract's
   // text/background separation is fundamentally luminance-based, not
   // hue-based - two colors can look completely distinct to a human eye
@@ -69,6 +62,18 @@ const CONFIG = {
   // consistent with the theory that at least some of the failures were
   // a luminance-contrast problem specific to certain badge colors.
   OCR_GRAYSCALE: true,
+  // A second, targeted OCR pass tries to resolve any row that still
+  // has no tag after the main whole-image pass, by cropping just its
+  // predicted tag-badge region (see tagCropTop/tagCropBottom in
+  // clusterAndExtract) and upscaling that small crop far more
+  // aggressively than the whole image ever could without a heavy
+  // global speed cost - since it's now a tiny region, a much higher
+  // factor is cheap. Grayscale (confirmed helping) is applied here too.
+  // This is genuinely new territory versus every whole-image
+  // preprocessing tweak tried so far - a small speed cost per
+  // still-unresolved row (not per screenshot), roughly proportional to
+  // how many rows still need it after the main pass.
+  OCR_TAG_CROP_UPSCALE_FACTOR: 8,
   // Safety cap on how many allocation attempts the recipe solver will try
   // before giving up, so a huge multi-waystone query can't hang the tab.
   SOLVER_NODE_LIMIT: 200000,
@@ -95,6 +100,15 @@ const RUNE_TYPES = ["City", "Flower", "Mask", "River", "Night", "Mud", "Song"];
 // as of when this was added; worth removing if it never actually turns up,
 // or confirming if it does.
 const TAG_NAMES = ["Event", "Rest", "Foraging", "Monster", "Wild", "Shrine", "Treasure", "Mining"];
+
+// Matches a tag badge's "+N TagName" text - built from TAG_NAMES alone,
+// so kept at module level (not scoped inside clusterAndExtract) since
+// both clusterAndExtract's first pass and parseScreenshot's second,
+// targeted crop-retry pass need to match against the exact same
+// pattern. The "+" is optional - OCR can just as easily drop or misread
+// that one character as get it right, and the number+name combination
+// is already distinctive enough on its own without requiring it.
+const tagRegex = new RegExp(`\\+?\\s*(\\d+)\\s*(${TAG_NAMES.join("|")})\\b`, "i");
 
 // Small hand-drawn glyph per rune type, used since we can't reuse the
 // game's own art. Single-color line icons, currentColor-tinted.
@@ -405,6 +419,83 @@ async function parseScreenshot(imgEl, onProgress, affixes) {
     .sort((a, b) => a.y0 - b.y0);
 
   const rows = clusterAndExtract(lines, imgHeight, affixes);
+
+  // Second, targeted pass: for any row still missing a tag after the
+  // main whole-image pass, crop just its predicted tag-badge region
+  // (see tagCropTop/tagCropBottom in clusterAndExtract) and retry OCR
+  // on that small crop alone, upscaled far more aggressively than the
+  // whole image could be without a heavy global speed cost. Run
+  // sequentially (not in parallel via Promise.all) to avoid multiple
+  // simultaneous Tesseract workers contending for resources.
+  const needsRetry = rows.filter((r) => r.tagName === null && r.tagCropTop != null);
+  const cropFactor = CONFIG.OCR_TAG_CROP_UPSCALE_FACTOR;
+  for (let i = 0; i < needsRetry.length; i++) {
+    const row = needsRetry[i];
+    if (onProgress) {
+      // Second, distinct argument - callers not yet updated to use it
+      // simply ignore it, so this stays backward compatible.
+      onProgress(Math.round(((i + 1) / needsRetry.length) * 100), {
+        phase: "tagRetry",
+        current: i + 1,
+        total: needsRetry.length,
+      });
+    }
+
+    const cropTop = Math.max(0, row.tagCropTop);
+    const cropBottom = Math.min(naturalHeight, row.tagCropBottom);
+    const cropHeight = cropBottom - cropTop;
+    if (cropHeight <= 0) continue;
+
+    const cropCanvas = document.createElement("canvas");
+    cropCanvas.width = naturalWidth * cropFactor;
+    cropCanvas.height = cropHeight * cropFactor;
+    const cropCtx = cropCanvas.getContext("2d");
+    cropCtx.imageSmoothingEnabled = true;
+    cropCtx.imageSmoothingQuality = "high";
+    // Source rectangle is the narrow original-image strip; destination
+    // is the whole (much larger) crop canvas - one call crops AND
+    // upscales together, no intermediate full-size copy needed.
+    cropCtx.drawImage(
+      imgEl,
+      0, cropTop, naturalWidth, cropHeight,
+      0, 0, cropCanvas.width, cropCanvas.height
+    );
+
+    if (CONFIG.OCR_GRAYSCALE) {
+      const imageData = cropCtx.getImageData(0, 0, cropCanvas.width, cropCanvas.height);
+      const px = imageData.data;
+      for (let j = 0; j < px.length; j += 4) {
+        const gray = 0.299 * px[j] + 0.587 * px[j + 1] + 0.114 * px[j + 2];
+        px[j] = gray;
+        px[j + 1] = gray;
+        px[j + 2] = gray;
+      }
+      cropCtx.putImageData(imageData, 0, 0);
+    }
+
+    let cropData;
+    try {
+      const result = await Tesseract.recognize(cropCanvas, "eng");
+      cropData = result.data;
+    } catch {
+      // A failed retry leaves the row exactly as the first pass left
+      // it (still flagged needs-review) - never worse off for trying.
+      continue;
+    }
+
+    const cropText = (cropData.lines || []).map((l) => l.text).join(" ");
+    const cropMatch = cropText.match(tagRegex);
+    if (cropMatch) {
+      const matchedTagName = TAG_NAMES.find((t) => t.toLowerCase() === cropMatch[2].toLowerCase());
+      if (matchedTagName) {
+        row.tagName = matchedTagName;
+        row.tagMagnitude = parseInt(cropMatch[1], 10);
+        row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tagName, row.tagMagnitude);
+        row.needsReview = row.missingParts.length > 0;
+      }
+    }
+  }
+
   // rawLines is returned (not just logged) so the UI can show exactly
   // what Tesseract detected directly on the page - no DevTools required.
   return { rows, rawLines: lines };
@@ -568,15 +659,8 @@ function clusterAndExtract(lines, imgHeight, affixes) {
   const omenNames = affixes?.omens?.map((o) => o.name) || [];
   const prefixMatcher = buildAffixMatcher(fortuneNames);
   const suffixMatcher = buildAffixMatcher(omenNames);
-  // Tag badges read like "+1 Rest" or "+2 Monster" - a leading number
-  // and a name, matched together as one unit against the known tag
-  // vocabulary (TAG_NAMES) rather than reusing the plain name-only
-  // affix matcher above, since a tag genuinely needs both pieces, not
-  // just the name. The "+" is optional in the pattern - OCR can just as
-  // easily drop or misread that one character as get it right, and the
-  // number+name combination is already distinctive enough on its own
-  // without requiring it.
-  const tagRegex = new RegExp(`\\+?\\s*(\\d+)\\s*(${TAG_NAMES.join("|")})\\b`, "i");
+  // tagRegex now lives at module level (see its definition near
+  // TAG_NAMES) - shared with parseScreenshot's second-pass crop retry.
 
   const tierHeaders = []; // { tier, top }
   const entries = [];
@@ -622,6 +706,34 @@ function clusterAndExtract(lines, imgHeight, affixes) {
     const tagName = tagMatch ? TAG_NAMES.find((t) => t.toLowerCase() === tagMatch[2].toLowerCase()) : null;
     const tagMagnitude = tagMatch ? parseInt(tagMatch[1], 10) : null;
 
+    // Bounding box of "everything below the rune's own name" within this
+    // cluster, in original screenshot pixel space - used by the second,
+    // targeted OCR pass below for whichever rows fail to resolve a tag
+    // on this first, whole-image pass. Found by locating the last line
+    // in the cluster whose text contains the resolved suffix word (the
+    // last part of the actual rune name) - everything below that line's
+    // bottom edge is where the tag badge (and price/coin junk) lives.
+    // Falls back to typicalLineHeight-sized band right below whatever
+    // WAS detected (even a single-line cluster) rather than leaving no
+    // region at all - the tag badge sits at a geometrically predictable
+    // position regardless of whether Tesseract's first pass happened to
+    // detect any text there, so this covers "detected but misread" and
+    // "never detected at all" cases alike.
+    let tagCropTop = null;
+    if (suffix) {
+      const suffixLower = suffix.toLowerCase();
+      for (let i = cluster.length - 1; i >= 0; i--) {
+        if (cluster[i].text.toLowerCase().includes(suffixLower)) {
+          tagCropTop = cluster[i].y1;
+          break;
+        }
+      }
+    }
+    if (tagCropTop == null) {
+      tagCropTop = cluster[cluster.length - 1].y1;
+    }
+    const tagCropBottom = tagCropTop + typicalLineHeight * 1.5;
+
     const confidence = cluster.reduce((sum, l) => sum + l.confidence, 0) / cluster.length;
     // What actually needs a human's attention now is whether the fields
     // that matter resolved cleanly against known vocabulary - not
@@ -638,6 +750,8 @@ function clusterAndExtract(lines, imgHeight, affixes) {
       suffix,
       tagName,
       tagMagnitude,
+      tagCropTop,
+      tagCropBottom,
       suggestedPrefix,
       suggestedSuffix,
       blob,
@@ -674,6 +788,8 @@ function clusterAndExtract(lines, imgHeight, affixes) {
       suffix: e.suffix,
       tagName: e.tagName,
       tagMagnitude: e.tagMagnitude,
+      tagCropTop: e.tagCropTop,
+      tagCropBottom: e.tagCropBottom,
       suggestedPrefix: e.suggestedPrefix,
       suggestedSuffix: e.suggestedSuffix,
       rawText: e.blob,
