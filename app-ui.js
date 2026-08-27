@@ -201,13 +201,35 @@ function renderDebugPanel(debugLines) {
   if (!els.debugPanel || debugLines.length === 0 || !troubleshootingState.on) return;
   els.debugPanel.classList.remove("hidden");
   els.debugOutput.textContent = debugLines
-    .map(
-      ({ label, lines }) =>
+    .map(({ label, lines, tagRetryDebug }) => {
+      const mainSection =
         `${label}:\n` +
         lines
           .map((l) => `  [${Math.round(l.confidence)}%] "${l.text}"  (y: ${Math.round(l.y0)}-${Math.round(l.y1)})`)
-          .join("\n")
-    )
+          .join("\n");
+      // Second-pass targeted tag-crop retries, if any ran for this
+      // screenshot - shown separately from the main per-line output
+      // above so a still-failing retry can actually be diagnosed: was
+      // the crop region positioned wrong (garbage/unrelated text at
+      // this section), or was it right but genuinely unreadable even
+      // at this much higher zoom (blank or near-blank output).
+      if (!tagRetryDebug || tagRetryDebug.length === 0) return mainSection;
+      const retrySection =
+        `  Tag crop retries:\n` +
+        tagRetryDebug
+          .map(({ rowLabel, cropTop, cropBottom, lines: cropLines, matched, skippedReason }) => {
+            const header = `    ${rowLabel}  (crop y: ${Math.round(cropTop)}-${Math.round(cropBottom)})  ${matched ? "MATCHED" : "no match"}`;
+            if (skippedReason) return `${header} - skipped: ${skippedReason}`;
+            if (cropLines.length === 0) return `${header}\n      (nothing detected in crop)`;
+            return (
+              header +
+              "\n" +
+              cropLines.map((l) => `      [${Math.round(l.confidence)}%] "${l.text}"`).join("\n")
+            );
+          })
+          .join("\n");
+      return `${mainSection}\n${retrySection}`;
+    })
     .join("\n\n");
 }
 
@@ -255,7 +277,7 @@ els.fileInput.addEventListener("change", async (e) => {
 
   const allRows = [];
   const failures = [];
-  const debugLines = []; // { label, lines: [{text, confidence, y0, y1}] } per screenshot
+  const debugLines = []; // { label, lines: [{text, confidence, y0, y1}], tagRetryDebug: [{rowLabel, cropTop, cropBottom, lines, matched}] } per screenshot
 
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
@@ -292,7 +314,7 @@ els.fileInput.addEventListener("change", async (e) => {
       els.previewStrip.appendChild(thumb);
 
       els.progress.textContent = `${prefix}Reading… 0%`;
-      const { rows, rawLines } = await parseScreenshot(
+      const { rows, rawLines, tagRetryDebug } = await parseScreenshot(
         img,
         (pct, phase) => {
           if (phase?.phase === "tagRetry") {
@@ -305,7 +327,7 @@ els.fileInput.addEventListener("change", async (e) => {
       );
       rows.forEach((r) => (r.sourceLabel = label));
       allRows.push(...rows);
-      debugLines.push({ label, lines: rawLines });
+      debugLines.push({ label, lines: rawLines, tagRetryDebug });
     } catch (err) {
       console.error(err);
       failures.push(`${escapeHtml(file.name)}: ${escapeHtml(err.message)}`);

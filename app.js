@@ -429,6 +429,13 @@ async function parseScreenshot(imgEl, onProgress, affixes) {
   // simultaneous Tesseract workers contending for resources.
   const needsRetry = rows.filter((r) => r.tagName === null && r.tagCropTop != null);
   const cropFactor = CONFIG.OCR_TAG_CROP_UPSCALE_FACTOR;
+  // Captures what the second pass actually saw/produced for every row
+  // it retried, success or failure - surfaced in the debug panel so a
+  // still-failing retry can actually be diagnosed (was the crop region
+  // positioned wrong, or was it right but genuinely unreadable even at
+  // this much higher zoom) instead of just silently trying and giving
+  // up with no visibility into what happened.
+  const tagRetryDebug = [];
   for (let i = 0; i < needsRetry.length; i++) {
     const row = needsRetry[i];
     if (onProgress) {
@@ -441,10 +448,14 @@ async function parseScreenshot(imgEl, onProgress, affixes) {
       });
     }
 
+    const rowLabel = `${row.prefix || "?"} ${row.type} of ${row.suffix || "?"}`;
     const cropTop = Math.max(0, row.tagCropTop);
     const cropBottom = Math.min(naturalHeight, row.tagCropBottom);
     const cropHeight = cropBottom - cropTop;
-    if (cropHeight <= 0) continue;
+    if (cropHeight <= 0) {
+      tagRetryDebug.push({ rowLabel, cropTop, cropBottom, lines: [], matched: false, skippedReason: "invalid crop height" });
+      continue;
+    }
 
     const cropCanvas = document.createElement("canvas");
     cropCanvas.width = naturalWidth * cropFactor;
@@ -477,14 +488,17 @@ async function parseScreenshot(imgEl, onProgress, affixes) {
     try {
       const result = await Tesseract.recognize(cropCanvas, "eng");
       cropData = result.data;
-    } catch {
+    } catch (err) {
       // A failed retry leaves the row exactly as the first pass left
       // it (still flagged needs-review) - never worse off for trying.
+      tagRetryDebug.push({ rowLabel, cropTop, cropBottom, lines: [], matched: false, skippedReason: `Tesseract error: ${err.message || err}` });
       continue;
     }
 
-    const cropText = (cropData.lines || []).map((l) => l.text).join(" ");
+    const cropLines = cropData.lines || [];
+    const cropText = cropLines.map((l) => l.text).join(" ");
     const cropMatch = cropText.match(tagRegex);
+    let matched = false;
     if (cropMatch) {
       const matchedTagName = TAG_NAMES.find((t) => t.toLowerCase() === cropMatch[2].toLowerCase());
       if (matchedTagName) {
@@ -492,13 +506,21 @@ async function parseScreenshot(imgEl, onProgress, affixes) {
         row.tagMagnitude = parseInt(cropMatch[1], 10);
         row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tagName, row.tagMagnitude);
         row.needsReview = row.missingParts.length > 0;
+        matched = true;
       }
     }
+    tagRetryDebug.push({
+      rowLabel,
+      cropTop,
+      cropBottom,
+      lines: cropLines.map((l) => ({ text: l.text, confidence: l.confidence })),
+      matched,
+    });
   }
 
   // rawLines is returned (not just logged) so the UI can show exactly
   // what Tesseract detected directly on the page - no DevTools required.
-  return { rows, rawLines: lines };
+  return { rows, rawLines: lines, tagRetryDebug };
 }
 
 /**
