@@ -624,24 +624,29 @@ button.danger {
 }
 
 /* Shows the actual cropped screenshot region a "show crop" click
-   revealed - lets a person visually confirm a tag reading themselves
-   when OCR couldn't, without needing to dig through their own
-   screenshots to find the right spot. Scrollable rather than
-   letting a wide screenshot overflow the row. */
+   revealed - lets a person visually confirm a rune's name and tag
+   themselves when OCR couldn't, without needing to dig through their
+   own screenshots to find the right spot. */
 .tag-crop-preview {
   margin-top: 0.5rem;
   padding: 0.5rem;
   background: var(--bg);
   border: 1px solid var(--rule);
   border-radius: 4px;
-  overflow-x: auto;
   color: var(--text-muted);
   font-size: 0.8rem;
 }
 
+/* The canvas is still rendered at full 3x resolution internally (kept
+   crisp/legible), but capped here to the row's own available width
+   rather than displayed at that full native pixel size - previously
+   this required horizontal scrolling to see anything, since 3x a
+   typical screenshot's width is far wider than the row itself.
+   height: auto preserves the crop's aspect ratio as it scales down. */
 .tag-crop-preview canvas {
   display: block;
-  max-width: none;
+  max-width: 100%;
+  height: auto;
 }
 
 .row-actions {

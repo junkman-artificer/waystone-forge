@@ -590,7 +590,7 @@ function renderPendingRows() {
         return;
       }
 
-      if (row.tagCropTop == null || !row.sourceImageUrl) {
+      if (row.top == null || row.tagCropBottom == null || !row.sourceImageUrl) {
         preview.textContent = "No source image available for this row.";
         preview.classList.remove("hidden");
         return;
@@ -605,7 +605,11 @@ function renderPendingRows() {
         await img.decode();
 
         const naturalWidth = img.naturalWidth;
-        const cropTop = Math.max(0, row.tagCropTop);
+        // Starts at the entry's own top (the rune name/icon), not just
+        // tagCropTop (which only covers the tag badge area) - the user
+        // asked to see the name and tag together for real context on
+        // which rune this actually is, not the tag in isolation.
+        const cropTop = Math.max(0, row.top);
         const cropBottom = Math.min(img.naturalHeight, row.tagCropBottom);
         const cropHeight = cropBottom - cropTop;
         if (cropHeight <= 0) {
@@ -618,6 +622,16 @@ function renderPendingRows() {
         // 8x, and deliberately skips the grayscale conversion used
         // there too, since a person benefits from seeing the real
         // badge color, not the version optimized for Tesseract.
+        //
+        // The canvas itself is still rendered at full 3x resolution
+        // (so the underlying image stays crisp), but its CSS width is
+        // separately capped to the preview container in style.css
+        // (max-width: 100%, height: auto) - previously it displayed at
+        // its full, un-scaled pixel width, which on a typical
+        // screenshot was far wider than the row itself, forcing
+        // horizontal scrolling to see anything. Capping the display
+        // size rather than lowering the zoom factor keeps the text
+        // legible while fitting the row without scrolling.
         const zoom = 3;
         const canvas = document.createElement("canvas");
         canvas.width = naturalWidth * zoom;
