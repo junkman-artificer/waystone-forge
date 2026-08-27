@@ -460,8 +460,25 @@ function rowHtml(row, fortuneNames, omenNames) {
 }
 
 function renderPendingRows() {
-  if (state.pendingRows.length === 0) {
-    els.pendingRows.innerHTML = `<p class="empty">No rune rows detected. Try a clearer screenshot, or use the manual add option.</p>`;
+  // Contaminated rows (tier-label overlap) are already excluded from
+  // being confirmed into inventory (included: false, set at extraction
+  // time regardless of this toggle) - this only controls whether the
+  // row itself is visually shown at all. Hidden by default to keep the
+  // normal review experience clean, since there's nothing a user can
+  // usefully do with one (no dropdown fixes a tier-label corruption);
+  // shown only in Troubleshooting Mode, where seeing exactly what got
+  // excluded and why is the actual point.
+  const visibleRows = state.pendingRows.filter((r) => troubleshootingState.on || !r.contaminated);
+
+  if (visibleRows.length === 0) {
+    // Distinguishes "genuinely nothing detected" from "rows were
+    // detected but every one is currently hidden as tier-label
+    // contamination" - the latter needs a different, accurate message
+    // rather than implying the screenshot itself produced nothing.
+    els.pendingRows.innerHTML =
+      state.pendingRows.length > 0
+        ? `<p class="empty">All detected rows are currently hidden as tier-label contamination. Turn on Troubleshooting Mode to review them.</p>`
+        : `<p class="empty">No rune rows detected. Try a clearer screenshot, or use the manual add option.</p>`;
     els.confirmBtn.classList.add("hidden");
     els.clearPendingBtn.classList.add("hidden");
     return;
@@ -479,16 +496,19 @@ function renderPendingRows() {
   // pairs get two distinct halos rather than blurring into one group of
   // four. sortForDuplicateReview already guarantees a group's members sit
   // consecutively, so this only ever needs to look at runs of matching
-  // duplicateGroup ids, not search the whole list.
+  // duplicateGroup ids, not search the whole list. Operates on
+  // visibleRows (not state.pendingRows directly) - removing hidden
+  // contaminated rows from this filtered view doesn't disturb the
+  // remaining, visible rows' own consecutive grouping among themselves.
   const htmlParts = [];
   let i = 0;
-  while (i < state.pendingRows.length) {
-    const row = state.pendingRows[i];
+  while (i < visibleRows.length) {
+    const row = visibleRows[i];
     if (row.duplicateGroup != null) {
       const groupId = row.duplicateGroup;
       const groupRows = [];
-      while (i < state.pendingRows.length && state.pendingRows[i].duplicateGroup === groupId) {
-        groupRows.push(state.pendingRows[i]);
+      while (i < visibleRows.length && visibleRows[i].duplicateGroup === groupId) {
+        groupRows.push(visibleRows[i]);
         i++;
       }
       htmlParts.push(
