@@ -903,6 +903,11 @@ function clusterAndExtract(lines, imgHeight, affixes) {
       suffix: e.suffix,
       tagName: e.tagName,
       tagMagnitude: e.tagMagnitude,
+      // top: the entry's own genuine top boundary (covers the rune
+      // name/icon, not just the tag-badge area tagCropTop starts at) -
+      // exposed specifically for the "show crop" preview, which needs
+      // to crop from here to show the name and tag together.
+      top: e.top,
       tagCropTop: e.tagCropTop,
       tagCropBottom: e.tagCropBottom,
       suggestedPrefix: e.suggestedPrefix,
