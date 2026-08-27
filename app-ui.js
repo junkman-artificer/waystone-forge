@@ -381,6 +381,33 @@ function affixOptions(names, selected, includeUnknown = true) {
 
 // The clipped notice is always shown (it explains an auto-excluded row);
 // the raw OCR text is troubleshooting detail, hidden in the normal view.
+/** Updates just one row's own needs-review class/badge in place, without
+ * re-rendering the row (which would rebuild its DOM and kick focus out
+ * of whatever input the user is actively typing in - a real problem
+ * specifically for the tag magnitude field, whose native "change" event
+ * only fires on blur, not per keystroke like a dropdown selection does).
+ * Called on "input" for that one field specifically, so the status
+ * updates live as the user types, the same way picking a Fortune/Omen/
+ * Tag name from a dropdown already updates it immediately. */
+function updateRowNeedsReviewUI(rowEl, row) {
+  rowEl.classList.toggle("needs-review", row.needsReview);
+  const existingBadge = rowEl.querySelector('[data-role="needs-review-badge"]');
+  if (row.needsReview) {
+    const text = `needs review - missing ${row.missingParts.join(" & ")}`;
+    if (existingBadge) {
+      existingBadge.textContent = text;
+    } else {
+      const rowNote = rowEl.querySelector(".row-note");
+      rowNote?.insertAdjacentHTML(
+        "beforebegin",
+        `<span class="row-badge badge-needs-review" data-role="needs-review-badge">${escapeHtml(text)}</span>`
+      );
+    }
+  } else if (existingBadge) {
+    existingBadge.remove();
+  }
+}
+
 function rowNoteHtml(row) {
   const parts = [];
   // Only worth showing when the current pending batch actually spans
@@ -431,7 +458,7 @@ function rowHtml(row, fortuneNames, omenNames) {
         <select data-role="tier">
           ${[1, 2, 3, 4, 5].map((t) => `<option value="${t}" ${t === row.tier ? "selected" : ""}>Tier ${t}</option>`).join("")}
         </select>
-        ${row.needsReview ? `<span class="row-badge badge-needs-review">needs review - missing ${row.missingParts.join(" & ")}</span>` : ""}
+        ${row.needsReview ? `<span class="row-badge badge-needs-review" data-role="needs-review-badge">needs review - missing ${row.missingParts.join(" & ")}</span>` : ""}
         <span class="row-note">${rowNoteHtml(row)}</span>
       </label>
       <div class="row-affixes">
@@ -449,10 +476,10 @@ function rowHtml(row, fortuneNames, omenNames) {
           <span class="affix-label">Tag</span>
           <div class="tag-combo">
             <span class="tag-plus">+</span>
-            <input type="number" min="1" step="1" class="tag-magnitude-input" data-role="tagMagnitude" value="${row.tagMagnitude ?? ""}" placeholder="1" />
+            <input type="number" min="0" step="1" class="tag-magnitude-input" data-role="tagMagnitude" value="${row.tagMagnitude ?? ""}" placeholder="1" />
             <select data-role="tagName">${affixOptions(TAG_NAMES, row.tagName)}</select>
           </div>
-          <button type="button" class="link-btn" data-role="show-crop" data-id="${row.id}">show crop</button>
+          <button type="button" class="link-btn" data-role="show-crop" data-id="${row.id}">show rune</button>
         </label>
       </div>
       <div class="tag-crop-preview hidden" data-role="tag-crop-preview"></div>
@@ -566,10 +593,24 @@ function renderPendingRows() {
       row.needsReview = row.missingParts.length > 0;
       refreshDuplicateFlags();
     });
-    rowEl.querySelector('[data-role="tagMagnitude"]').addEventListener("change", (e) => {
+    rowEl.querySelector('[data-role="tagMagnitude"]').addEventListener("input", (e) => {
+      // "input" (fires per keystroke) rather than relying only on
+      // "change" (fires on blur) - lets the needs-review status update
+      // live as the user types, the same way selecting a Fortune/Omen/
+      // Tag name from a dropdown already does immediately. Uses the
+      // lightweight, targeted update helper rather than a full
+      // re-render, since re-rendering here would rebuild this exact
+      // input's own DOM node and kick it out of focus mid-typing.
       row.tagMagnitude = parseInt(e.target.value, 10) || null;
       row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tagName, row.tagMagnitude);
       row.needsReview = row.missingParts.length > 0;
+      updateRowNeedsReviewUI(rowEl, row);
+    });
+    rowEl.querySelector('[data-role="tagMagnitude"]').addEventListener("change", () => {
+      // Duplicate re-checking is heavier (re-renders the full list) and
+      // only needs to happen once the value is actually settled, not on
+      // every keystroke - deferred to blur/change, using data the
+      // "input" listener above has already kept correct the whole time.
       refreshDuplicateFlags();
     });
   });

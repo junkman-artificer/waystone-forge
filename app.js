@@ -658,8 +658,14 @@ function computeMissingParts(prefix, suffix, tagName, tagMagnitude) {
   // A tag genuinely needs both pieces together - a name with no
   // magnitude (or vice versa) is just as incomplete as having neither,
   // since the in-game badge always shows them as one unit ("+1 Rest",
-  // never just "Rest" alone).
-  if (!tagName || tagMagnitude == null) missingParts.push("Tag");
+  // never just "Rest" alone). tagMagnitude <= 0 is treated the same as
+  // missing entirely (not just == null) - no real rune ever has a "+0"
+  // tag, so 0 is never a genuinely resolved value regardless of how it
+  // ended up as the stored number; the input's min was changed from 1
+  // to 0 specifically so an accidental/default 0 reads as visibly
+  // wrong rather than looking like a real, chosen value, but this
+  // check is what actually keeps the row correctly flagged either way.
+  if (!tagName || tagMagnitude == null || tagMagnitude <= 0) missingParts.push("Tag");
   return missingParts;
 }
 
