@@ -399,6 +399,13 @@ function rowNoteHtml(row) {
   }
   if (row.clipped) {
     parts.push("edge-clipped - excluded by default");
+  } else if (row.contaminated) {
+    // Same "excluded by default, explain why instead of showing raw
+    // OCR text" treatment as clipped - a contaminated row's raw text
+    // isn't something a dropdown correction can fix, since the actual
+    // problem is the in-game floating tier label corrupting what
+    // Tesseract read, not a simple unresolved field.
+    parts.push("tier label overlap - excluded by default");
   } else if (troubleshootingState.on || row.needsReview) {
     // Shown unconditionally for needs-review rows (not just when
     // Troubleshooting Mode is on) - the raw OCR text is genuinely
@@ -413,7 +420,7 @@ function rowNoteHtml(row) {
 
 function rowHtml(row, fortuneNames, omenNames) {
   return `
-    <div class="pending-row ${row.clipped ? "clipped" : ""} ${row.needsReview ? "needs-review" : ""}" data-id="${row.id}">
+    <div class="pending-row ${row.clipped || row.contaminated ? "clipped" : ""} ${row.needsReview ? "needs-review" : ""}" data-id="${row.id}">
       <label>
         <input type="checkbox" ${row.included ? "checked" : ""} data-role="include" />
         ${iconSvg(row.type)}

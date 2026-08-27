@@ -568,6 +568,27 @@ function matchAffix(text, matcher) {
   return matcher.lookup.get(normalized) || null;
 }
 
+/** Finds every DISTINCT known name that appears anywhere in text, not
+ * just the first (matchAffix's job). Used to detect when two separate
+ * runes' text has bled together into one cluster - a legitimate single
+ * rune's suffix portion should never contain a second, different known
+ * Omen name, since nothing else in that region of the UI matches that
+ * vocabulary. Returns canonical names (correct casing from the source
+ * list), deduplicated - the same name appearing twice isn't a bleed
+ * signal, a second DIFFERENT name is. */
+function findAllAffixMatches(text, matcher) {
+  if (!matcher.regex) return [];
+  const globalRegex = new RegExp(matcher.regex.source, "gi");
+  const found = new Set();
+  let m;
+  while ((m = globalRegex.exec(text)) !== null) {
+    const normalized = m[1].trim().replace(/\s+/g, " ").toLowerCase();
+    const canonical = matcher.lookup.get(normalized);
+    if (canonical) found.add(canonical);
+  }
+  return [...found];
+}
+
 function levenshteinDistance(a, b) {
   const m = a.length, n = b.length;
   const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
@@ -703,7 +724,7 @@ function clusterAndExtract(lines, imgHeight, affixes) {
   // tagRegex now lives at module level (see its definition near
   // TAG_NAMES) - shared with parseScreenshot's second-pass crop retry.
 
-  const tierHeaders = []; // { tier, top }
+  const tierHeaders = []; // { tier, top, bottom }
   const entries = [];
 
   clusters.forEach((cluster) => {
@@ -718,7 +739,7 @@ function clusterAndExtract(lines, imgHeight, affixes) {
 
     const tierMatch = blob.match(tierRegex);
     if (tierMatch) {
-      tierHeaders.push({ tier: parseInt(tierMatch[1], 10), top });
+      tierHeaders.push({ tier: parseInt(tierMatch[1], 10), top, bottom });
     }
 
     const typeMatch = blob.match(typeRegex);
@@ -737,6 +758,27 @@ function clusterAndExtract(lines, imgHeight, affixes) {
     // match - a resolved field never needs a suggestion.
     const suggestedPrefix = prefix ? null : suggestAffixGuess(beforeType, fortuneNames);
     const suggestedSuffix = suffix ? null : suggestAffixGuess(afterType, omenNames);
+
+    // Two independent, direct signals that this cluster's own text
+    // genuinely bled together from two separate runes (not just a
+    // legitimately-wrapped name), rather than something a crop/upscale
+    // fix could ever help with, since the corruption is in what
+    // Tesseract already read, not in how well it could read it:
+    //
+    // (a) The blob matched BOTH a tier-header pattern and a rune-name
+    // pattern together - the in-game floating tier label's own text
+    // literally fused with this entry's in one OCR-detected line.
+    //
+    // (b) afterType (everything past the type word, where only this
+    // one rune's own suffix should ever legitimately appear) contains
+    // a SECOND, different known Omen name beyond the one already
+    // resolved - nothing else in that region of the UI matches that
+    // vocabulary, so a second one appearing means a neighboring rune's
+    // name bled into this cluster.
+    const blobHasTierMatch = tierMatch != null;
+    const afterTypeSuffixNames = findAllAffixMatches(afterType, suffixMatcher);
+    const hasBleedSuffix = afterTypeSuffixNames.length > 1;
+    const textuallyContaminated = blobHasTierMatch || hasBleedSuffix;
 
     // The tag badge sits visually below the name, but the whole cluster
     // is searched (not just afterType) rather than assuming OCR line
@@ -814,12 +856,20 @@ function clusterAndExtract(lines, imgHeight, affixes) {
       midY,
       confidence,
       missingParts,
+      textuallyContaminated,
       inlineTier: tierMatch ? parseInt(tierMatch[1], 10) : null,
     });
   });
 
   tierHeaders.sort((a, b) => a.top - b.top);
   const margin = typicalLineHeight * CONFIG.EDGE_MARGIN_RATIO;
+  // Small buffer added to each tier header's own range before checking
+  // overlap against an entry - OCR line boundaries aren't pixel-perfect
+  // (same reasoning as the tag-crop margin above), so a header that
+  // sits just barely adjacent to an entry, not strictly overlapping by
+  // the raw numbers, still gets treated as contamination risk rather
+  // than assuming a clean boundary that might not really be there.
+  const tierOverlapBuffer = typicalLineHeight * 0.5;
 
   const rows = entries.map((e, idx) => {
     let tier = e.inlineTier;
@@ -834,6 +884,17 @@ function clusterAndExtract(lines, imgHeight, affixes) {
     // top/bottom edge - more precise than an estimated margin, since we
     // now know each entry's real bounding box rather than one anchor line.
     const clipped = e.top < margin || e.bottom > imgHeight - margin;
+    // Geometric contamination: this entry's own vertical range overlaps
+    // a separately-detected tier header's range, even when their text
+    // never literally merged into one blob (e.tierHeaders was already
+    // checked for that, textuallyContaminated) - the in-game floating
+    // tier label can visually obscure/degrade whatever's directly
+    // behind or adjacent to it without its own text necessarily
+    // bleeding into the same OCR line, so this catches that separately.
+    const tierLabelOverlap = tierHeaders.some(
+      (h) => e.top < h.bottom + tierOverlapBuffer && e.bottom > h.top - tierOverlapBuffer
+    );
+    const contaminated = e.textuallyContaminated || tierLabelOverlap;
     return {
       id: `${Date.now()}-${idx}`,
       type: e.type,
@@ -851,7 +912,8 @@ function clusterAndExtract(lines, imgHeight, affixes) {
       needsReview: e.missingParts.length > 0,
       missingParts: e.missingParts,
       clipped,
-      included: !clipped,
+      contaminated,
+      included: !clipped && !contaminated,
     };
   });
 
