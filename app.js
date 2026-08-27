@@ -735,12 +735,24 @@ function clusterAndExtract(lines, imgHeight, affixes) {
     // in the cluster whose text contains the resolved suffix word (the
     // last part of the actual rune name) - everything below that line's
     // bottom edge is where the tag badge (and price/coin junk) lives.
-    // Falls back to typicalLineHeight-sized band right below whatever
+    // Falls back to a typicalLineHeight-sized band right below whatever
     // WAS detected (even a single-line cluster) rather than leaving no
     // region at all - the tag badge sits at a geometrically predictable
     // position regardless of whether Tesseract's first pass happened to
     // detect any text there, so this covers "detected but misread" and
     // "never detected at all" cases alike.
+    //
+    // A small negative top margin and a taller bottom margin were added
+    // after real crop-retry debug output showed the tight version was
+    // clipping the actual badge: one case's crop top landed exactly
+    // inside a line Tesseract's first pass had already (imprecisely)
+    // bounded, likely cutting off the tops of the retry's own glyphs
+    // before it even ran; another case's narrow fallback band happened
+    // to land almost exactly in the gap between two unrelated UI
+    // elements, with no guarantee the actual badge was fully inside
+    // that narrow window rather than partially outside it. OCR line
+    // boxes aren't pixel-perfect, so a small buffer on both edges is
+    // cheap insurance against re-clipping the same way twice.
     let tagCropTop = null;
     if (suffix) {
       const suffixLower = suffix.toLowerCase();
@@ -754,7 +766,8 @@ function clusterAndExtract(lines, imgHeight, affixes) {
     if (tagCropTop == null) {
       tagCropTop = cluster[cluster.length - 1].y1;
     }
-    const tagCropBottom = tagCropTop + typicalLineHeight * 1.5;
+    tagCropTop -= typicalLineHeight * 0.3;
+    const tagCropBottom = tagCropTop + typicalLineHeight * 2.2;
 
     const confidence = cluster.reduce((sum, l) => sum + l.confidence, 0) / cluster.length;
     // What actually needs a human's attention now is whether the fields
