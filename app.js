@@ -824,11 +824,29 @@ function clusterAndExtract(lines, imgHeight, affixes) {
         }
       }
     }
-    if (tagCropTop == null) {
+    // Whether the fallback path below actually got used - distinct from
+    // just "suffix is null", since suffix could still be null even if
+    // this loop found a line (an unresolved name against known
+    // vocabulary, but the line itself was detected). This flag is
+    // specifically about whether cluster genuinely had a line
+    // containing the resolved suffix text.
+    const usedFallbackTop = tagCropTop == null;
+    if (usedFallbackTop) {
       tagCropTop = cluster[cluster.length - 1].y1;
     }
     tagCropTop -= typicalLineHeight * 0.3;
-    const tagCropBottom = tagCropTop + typicalLineHeight * 2.2;
+    // The fallback path's band needs to be meaningfully taller than the
+    // normal, suffix-resolved case - confirmed via a real "show crop"
+    // preview where a wrapped two-line name's second line ("Exhaustion")
+    // was never detected by Tesseract's first pass at all (not a
+    // clustering bug - the cluster genuinely only had the first line).
+    // In that situation, the last-detected line is the FIRST name line,
+    // not the second - meaning an entire undetected line (the wrapped
+    // suffix itself) sits between where this band starts and where the
+    // actual tag badge is, on top of the tag area itself. The normal
+    // 2.2x band was sized assuming no such gap, so it fell short.
+    const bandHeight = typicalLineHeight * (usedFallbackTop ? 3.5 : 2.2);
+    const tagCropBottom = tagCropTop + bandHeight;
 
     const confidence = cluster.reduce((sum, l) => sum + l.confidence, 0) / cluster.length;
     // What actually needs a human's attention now is whether the fields
