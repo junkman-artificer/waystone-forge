@@ -486,7 +486,18 @@ async function parseScreenshot(imgEl, onProgress, affixes) {
 
     let cropData;
     try {
-      const result = await Tesseract.recognize(cropCanvas, "eng");
+      // This crop is deliberately small and known to contain at most
+      // one line of text - Tesseract's default page-segmentation mode
+      // assumes a full page/document, and badly over-fragments a crop
+      // this size into dozens of tiny, nonsensical "lines" instead
+      // (confirmed by inspecting real crop-retry debug output: 20+
+      // single-character-ish fragments from one small region, even on
+      // successful matches, where the real text was buried among
+      // them). PSM 7 ("treat the image as a single text line") is
+      // Tesseract's own documented mode for exactly this case.
+      const result = await Tesseract.recognize(cropCanvas, "eng", {
+        tessedit_pageseg_mode: "7",
+      });
       cropData = result.data;
     } catch (err) {
       // A failed retry leaves the row exactly as the first pass left
