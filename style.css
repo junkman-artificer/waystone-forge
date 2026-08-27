@@ -623,6 +623,27 @@ button.danger {
   font-size: 0.85rem;
 }
 
+/* Shows the actual cropped screenshot region a "show crop" click
+   revealed - lets a person visually confirm a tag reading themselves
+   when OCR couldn't, without needing to dig through their own
+   screenshots to find the right spot. Scrollable rather than
+   letting a wide screenshot overflow the row. */
+.tag-crop-preview {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background: var(--bg);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  overflow-x: auto;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.tag-crop-preview canvas {
+  display: block;
+  max-width: none;
+}
+
 .row-actions {
   display: flex;
   gap: 0.6rem;

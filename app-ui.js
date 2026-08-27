@@ -325,7 +325,14 @@ els.fileInput.addEventListener("change", async (e) => {
         },
         affixState.data
       );
-      rows.forEach((r) => (r.sourceLabel = label));
+      // sourceImageUrl kept alongside each row so a "show me the crop"
+      // preview can regenerate the exact image region later, entirely
+      // client-side - img.src is never explicitly revoked anywhere in
+      // this flow, so it stays valid for the review session.
+      rows.forEach((r) => {
+        r.sourceLabel = label;
+        r.sourceImageUrl = img.src;
+      });
       allRows.push(...rows);
       debugLines.push({ label, lines: rawLines, tagRetryDebug });
     } catch (err) {
@@ -438,8 +445,10 @@ function rowHtml(row, fortuneNames, omenNames) {
             <input type="number" min="1" step="1" class="tag-magnitude-input" data-role="tagMagnitude" value="${row.tagMagnitude ?? ""}" placeholder="1" />
             <select data-role="tagName">${affixOptions(TAG_NAMES, row.tagName)}</select>
           </div>
+          <button type="button" class="link-btn" data-role="show-crop" data-id="${row.id}">show crop</button>
         </label>
       </div>
+      <div class="tag-crop-preview hidden" data-role="tag-crop-preview"></div>
     </div>`;
 }
 
@@ -553,6 +562,69 @@ function renderPendingRows() {
       row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tagName, row.tagMagnitude);
       row.needsReview = row.missingParts.length > 0;
       refreshDuplicateFlags();
+    });
+  });
+
+  els.pendingRows.querySelectorAll('[data-role="show-crop"]').forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = btn.dataset.id;
+      const row = state.pendingRows.find((r) => r.id === id);
+      const rowEl = btn.closest(".pending-row");
+      const preview = rowEl?.querySelector('[data-role="tag-crop-preview"]');
+      if (!row || !preview) return;
+
+      // Toggle: a second click on an already-open preview just closes
+      // it again, rather than redundantly re-rendering - the crop
+      // region never changes after the initial OCR pass, so there's
+      // nothing to refresh.
+      if (!preview.classList.contains("hidden")) {
+        preview.classList.add("hidden");
+        preview.innerHTML = "";
+        return;
+      }
+
+      if (row.tagCropTop == null || !row.sourceImageUrl) {
+        preview.textContent = "No source image available for this row.";
+        preview.classList.remove("hidden");
+        return;
+      }
+
+      preview.textContent = "Loading…";
+      preview.classList.remove("hidden");
+
+      try {
+        const img = new Image();
+        img.src = row.sourceImageUrl;
+        await img.decode();
+
+        const naturalWidth = img.naturalWidth;
+        const cropTop = Math.max(0, row.tagCropTop);
+        const cropBottom = Math.min(img.naturalHeight, row.tagCropBottom);
+        const cropHeight = cropBottom - cropTop;
+        if (cropHeight <= 0) {
+          preview.textContent = "Couldn't determine a valid crop region for this row.";
+          return;
+        }
+
+        // Moderate zoom (3x) is plenty for human legibility - unlike
+        // the OCR retry pass, this doesn't need Tesseract's aggressive
+        // 8x, and deliberately skips the grayscale conversion used
+        // there too, since a person benefits from seeing the real
+        // badge color, not the version optimized for Tesseract.
+        const zoom = 3;
+        const canvas = document.createElement("canvas");
+        canvas.width = naturalWidth * zoom;
+        canvas.height = cropHeight * zoom;
+        const ctx = canvas.getContext("2d");
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(img, 0, cropTop, naturalWidth, cropHeight, 0, 0, canvas.width, canvas.height);
+
+        preview.innerHTML = "";
+        preview.appendChild(canvas);
+      } catch (err) {
+        preview.textContent = `Couldn't load the source image: ${err.message || err}`;
+      }
     });
   });
 }

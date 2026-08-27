@@ -495,6 +495,14 @@ async function parseScreenshot(imgEl, onProgress, affixes) {
       // successful matches, where the real text was buried among
       // them). PSM 7 ("treat the image as a single text line") is
       // Tesseract's own documented mode for exactly this case.
+      //
+      // Confirmed via a real re-test to not meaningfully help - still
+      // a lot of misreading on the same known-problematic rows. Left
+      // in place rather than reverted, unlike the smoothing/4x-upscale
+      // attempts, since this one didn't make anything measurably
+      // worse either - it's a correct, well-grounded configuration for
+      // what this crop actually is, it just isn't the fix for
+      // whatever's still causing the remaining failures.
       const result = await Tesseract.recognize(cropCanvas, "eng", {
         tessedit_pageseg_mode: "7",
       });
