@@ -476,7 +476,7 @@ function rowHtml(row, fortuneNames, omenNames) {
           <span class="affix-label">Tag</span>
           <div class="tag-combo">
             <span class="tag-plus">+</span>
-            <input type="number" min="0" step="1" class="tag-magnitude-input" data-role="tagMagnitude" value="${row.tagMagnitude ?? ""}" placeholder="1" />
+            <input type="number" min="0" step="1" class="tag-magnitude-input" data-role="tagMagnitude" value="${row.tagMagnitude ?? ""}" placeholder="?" />
             <select data-role="tagName">${affixOptions(TAG_NAMES, row.tagName)}</select>
           </div>
           <button type="button" class="link-btn" data-role="show-crop" data-id="${row.id}">show rune</button>
