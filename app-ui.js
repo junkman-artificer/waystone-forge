@@ -35,6 +35,15 @@ let commitOrderCounter = 0;
 // doesn't need to re-run the solver.
 let resultsState = null;
 
+// Single-level undo for the most recent "Build Selected" click - not a
+// full history, just "undo the last build action", matching the actual
+// ask. Holds { inventorySnapshot, units } for exactly the units that
+// specific click actually built (not ones already built in an earlier,
+// separate click), so undo can't accidentally revert something outside
+// what the user just did. Cleared whenever a new build happens (that
+// batch's snapshot replaces this one) or once undo is actually used.
+let lastBuildUndo = null;
+
 function stackLabel(prefix, suffix) {
   if (!prefix && !suffix) return "unresolved";
   return escapeHtml(`${prefix || "?"}/${suffix || "?"}`);
@@ -1076,8 +1085,10 @@ function renderTierTabs(colorByKey) {
       // Results are scoped to whichever tier they were solved for -
       // leaving a stale tier's results (with an actionable Build button
       // still attached to them) visible after switching tabs would be
-      // genuinely confusing, not just cosmetically stale.
+      // genuinely confusing, not just cosmetically stale. Same
+      // reasoning applies to a lingering Undo option.
       resultsState = null;
+      lastBuildUndo = null;
       els.results.innerHTML = "";
       renderWaystoneList();
     });
@@ -1262,6 +1273,7 @@ els.solveBtn.addEventListener("click", () => {
 
   if (committed.length === 0) {
     resultsState = null;
+    lastBuildUndo = null;
     els.results.innerHTML = `<p class="empty">Check at least one Tier ${activeTier} waystone and set a quantity above.</p>`;
     return;
   }
@@ -1284,6 +1296,7 @@ els.solveBtn.addEventListener("click", () => {
 
   if (!result.success) {
     resultsState = null;
+    lastBuildUndo = null;
     els.results.innerHTML = `<p class="warn">${result.reason}</p>`;
     return;
   }
@@ -1339,6 +1352,10 @@ els.solveBtn.addEventListener("click", () => {
       <tbody>${leftoverRows}</tbody>
     </table>`;
 
+  // A fresh solve invalidates any undo from a previous results view -
+  // its snapshot and unit references no longer correspond to what's
+  // about to be displayed.
+  lastBuildUndo = null;
   resultsState = {
     tier,
     usageTableHtml,
@@ -1490,6 +1507,11 @@ function renderResults() {
     selectedCount > 0
       ? `<button type="button" class="primary build-selected-btn" data-role="build-selected">Build Selected (${selectedCount})</button>`
       : "";
+  // Only offered right after the specific batch that created it - never
+  // a general multi-step undo history, matching the actual ask.
+  const undoBuildBtn = lastBuildUndo
+    ? `<button type="button" class="secondary undo-build-btn" data-role="undo-build">Undo Last Build</button>`
+    : "";
 
   // The checklist is only offered once nothing's left to build -
   // selectedCount above is exactly "committed but not yet built", so
@@ -1515,6 +1537,7 @@ function renderResults() {
   els.results.innerHTML = `
     <div class="results-grid">${cardHtml}</div>
     ${buildBtn}
+    ${undoBuildBtn}
     ${checklistSection}
     ${resultsState.usageTableHtml}`;
 
@@ -1550,6 +1573,23 @@ function renderResults() {
   if (buildSelectedBtn) {
     buildSelectedBtn.addEventListener("click", () => {
       if (!confirm(`Deduct the runes for ${selectedCount} selected build${selectedCount > 1 ? "s" : ""} from your inventory?`)) return;
+
+      // Snapshot BEFORE building - captures exactly which units this
+      // specific click is about to build (not ones already built
+      // earlier), so undo only ever reverts this batch, never anything
+      // outside it. Inventory is deep-cloned since it's plain,
+      // serializable data with no functions or circular references.
+      const unitsAboutToBuild = [];
+      resultsState.cards.forEach((card) => {
+        card.units.forEach((unit) => {
+          if (unit.selectedOptionIndex !== null && !unit.built) unitsAboutToBuild.push(unit);
+        });
+      });
+      lastBuildUndo = {
+        inventorySnapshot: JSON.parse(JSON.stringify(state.inventory)),
+        units: unitsAboutToBuild,
+      };
+
       resultsState.cards.forEach((card) => {
         card.units.forEach((unit) => {
           if (unit.selectedOptionIndex !== null && !unit.built) {
@@ -1562,6 +1602,29 @@ function renderResults() {
       // Building actually mutates real inventory - any still-unbuilt
       // units need their options recomputed against that new reality,
       // not just against everyone else's hypothetical holds.
+      recomputeUnitOptions();
+      renderResults();
+    });
+  }
+
+  const undoBuildBtnEl = els.results.querySelector('[data-role="undo-build"]');
+  if (undoBuildBtnEl) {
+    undoBuildBtnEl.addEventListener("click", () => {
+      if (!lastBuildUndo) return;
+      state.inventory = lastBuildUndo.inventorySnapshot;
+      // Only the specific units THIS batch built get reset - a plain
+      // object reference reset (not a deep clone), since built/
+      // resolutions are the only two fields buildUnit ever changed on
+      // a unit, and every other unit in resultsState (built in an
+      // earlier click, or never touched at all) is correctly left
+      // exactly as it was.
+      lastBuildUndo.units.forEach((unit) => {
+        unit.built = false;
+        unit.resolutions = {};
+      });
+      lastBuildUndo = null;
+      saveInventory();
+      refreshInventoryViews();
       recomputeUnitOptions();
       renderResults();
     });
