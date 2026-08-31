@@ -10,7 +10,7 @@
       ]
     },
     {
-      "name": "Mr Ripley's Midnight Carnival",
+      "name": "Mr. Ripley's Midnight Carnival",
       "location": "Eastern Gate",
       "recipes": [
         { "slots": [["Mask"], ["Night"], ["Song"]] }
@@ -27,7 +27,7 @@
       ]
     },
     {
-      "name": "The Theatre District",
+      "name": "The Theater District",
       "location": "Eastern Gate",
       "recipes": [
         { "slots": [["City"], ["Mask"], ["Song"]] }
@@ -52,7 +52,7 @@
       ]
     },
     {
-      "name": "Goblin Shipyards",
+      "name": "Goblin Shipyard",
       "location": "Gloomhaven",
       "recipes": [
         { "slots": [["City"], ["Mud"], ["River"]] }

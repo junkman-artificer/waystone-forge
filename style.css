@@ -1007,6 +1007,46 @@ th {
   margin-bottom: 0;
 }
 
+/* The "expected deck" preview - shown once a unit has a real selection
+   (per explicit request, live as picked, not just once built), and
+   again using real historical data once actually built. Pills rather
+   than plain text, matching the deck-tag badge's own visual language,
+   so the two related-but-distinct "tag" concepts still read as
+   belonging to the same family. */
+.deck-comp-preview {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--rule);
+}
+
+.deck-comp-label {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin: 0 0 0.35rem;
+}
+
+.deck-comp-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.deck-comp-pill {
+  background: var(--panel-raised);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.78rem;
+  color: var(--text);
+}
+
+.deck-comp-count {
+  color: var(--gold);
+  font-weight: 600;
+}
+
 .affix-tag-fortune {
   color: var(--affix-blue);
   font-size: 0.72rem;

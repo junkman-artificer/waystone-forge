@@ -135,6 +135,7 @@ const state = {
   inventory: loadInventory(),
   pendingRows: [], // rows from the most recent screenshot, awaiting confirm
   waystoneData: null, // loaded from recipes.json
+  deckCompositions: null, // loaded from deck-compositions.json
 };
 
 function itemKey(tier, type, prefix, suffix, tagName, tagMagnitude) {
@@ -1085,6 +1086,34 @@ function requirementSignature(req) {
     .join(",");
 }
 
+/** Computes the actual resulting deck composition for one built (or
+ * just-selected) unit - the waystone's fixed baseline card counts, plus
+ * each specific rune actually used contributing its own tag's magnitude
+ * on top, confirmed additive (a rune with "+1 Monster" adds 1 to that
+ * category) and confirmed to stack when multiple runes share a tag
+ * category (two "+1 Monster" runes add 2, not 1). `resolutions` is a
+ * unit's own resolutions object ({ [type]: { allocations: [...] } }),
+ * the same shape whether the unit is just selected or already built -
+ * this doesn't care which, since a rune's own tag doesn't change
+ * between those two states. Deliberately generic across every possible
+ * tag category (not just the 4 seen in the current 12-waystone
+ * baseline data), so a tag category absent from every baseline still
+ * correctly gets tracked rather than silently dropped, if one ever
+ * shows up on a real rune. Returns null if this waystone has no
+ * composition data on file, rather than a misleadingly empty result. */
+function deckComposition(waystoneName, resolutions, deckCompositions) {
+  const baseline = deckCompositions?.waystones?.[waystoneName];
+  if (!baseline) return null;
+  const result = { ...baseline };
+  Object.values(resolutions || {}).forEach((res) => {
+    (res.allocations || []).forEach((a) => {
+      if (!a.tagName || a.tagMagnitude == null) return;
+      result[a.tagName] = (result[a.tagName] || 0) + a.tagMagnitude;
+    });
+  });
+  return result;
+}
+
 /**
  * Like bestBuildableOption, but returns EVERY distinct requirement
  * (across all recipe variants and wildcard resolutions) that's
@@ -1188,6 +1217,7 @@ export const PradoApp = {
   bestBuildableOption,
   allBuildableOptions,
   requirementSignature,
+  deckComposition,
   suggestAffixGuess,
   computeMissingParts,
   solveAllocation,

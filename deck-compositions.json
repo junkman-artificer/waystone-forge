@@ -1,0 +1,17 @@
+{
+  "_comment": "Baseline deck composition per waystone - the card counts a completed deck contains before any rune tag contributions are added. Keys match recipes.json waystone names exactly. Each rune actually used to build the deck adds its own tag's magnitude on top of these baseline numbers (e.g. a rune with a '+1 Monster' tag adds 1 to that waystone's baseline Monster count) - see deckComposition() in app.js. Provided directly by the user from in-game data, not derived/guessed.",
+  "waystones": {
+    "Meadowland Wilds": { "Monster": 4, "Event": 1, "Rest": 1, "Wild": 1 },
+    "Canals of Sweetwater": { "Monster": 4, "Event": 2, "Rest": 0, "Wild": 1 },
+    "Festival of Petals": { "Monster": 4, "Event": 1, "Rest": 0, "Wild": 2 },
+    "Outer Wards of the Old City": { "Monster": 4, "Event": 1, "Rest": 1, "Wild": 1 },
+    "The Theater District": { "Monster": 4, "Event": 0, "Rest": 1, "Wild": 2 },
+    "Heist at Smuggler's Wharf": { "Monster": 4, "Event": 1, "Rest": 0, "Wild": 2 },
+    "Mr. Ripley's Midnight Carnival": { "Monster": 4, "Event": 0, "Rest": 0, "Wild": 3 },
+    "The Filthworks": { "Monster": 4, "Event": 1, "Rest": 1, "Wild": 1 },
+    "The Pit of Hands": { "Monster": 4, "Event": 1, "Rest": 0, "Wild": 2 },
+    "Gloomwood Depths": { "Monster": 4, "Event": 1, "Rest": 1, "Wild": 1 },
+    "Goblin Shipyard": { "Monster": 4, "Event": 1, "Rest": 0, "Wild": 2 },
+    "Nightsong Bloom": { "Monster": 4, "Event": 3, "Rest": 0, "Wild": 0 }
+  }
+}

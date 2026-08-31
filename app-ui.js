@@ -1,6 +1,6 @@
 import { PradoApp } from "./app.js";
 
-const { state, itemKey, saveInventory, addToInventory, getTierTypeTotal, getFilteredTierTypeTotal, getFilteredTierTypeCandidates, resolveTypeAllocation, parseScreenshot, solveAllocation, bestBuildableOption, allBuildableOptions, requirementSignature, computeMissingParts, flagDuplicates, sortForDuplicateReview, TYPE_ICONS, RUNE_TYPES, TAG_NAMES } =
+const { state, itemKey, saveInventory, addToInventory, getTierTypeTotal, getFilteredTierTypeTotal, getFilteredTierTypeCandidates, resolveTypeAllocation, parseScreenshot, solveAllocation, bestBuildableOption, allBuildableOptions, requirementSignature, deckComposition, computeMissingParts, flagDuplicates, sortForDuplicateReview, TYPE_ICONS, RUNE_TYPES, TAG_NAMES } =
   PradoApp;
 
 const MAX_TIER = 5; // runes go up to Tier 5 in-game; recipes.json defines each waystone once and loadRecipes() expands it across all 5 tiers
@@ -103,6 +103,33 @@ function deckTagHtml(tagName, tagMagnitude) {
 function plainDeckTag(tagName, tagMagnitude) {
   if (!tagName) return "";
   return `+${tagMagnitude ?? "?"} ${tagName}`;
+}
+
+/** Renders the "expected deck" preview - the actual resulting card
+ * counts a specific set of resolutions would produce, per
+ * deckComposition() in app.js (waystone baseline + each used rune's
+ * own tag contribution). "Deck composition" deliberately distinct
+ * naming from "deck tag" (a single rune's own +N badge) and "trait
+ * tag" (the bracketed Fortune/Omen indicators) - three genuinely
+ * different "tag"-adjacent concepts now coexist in this app, and
+ * conflating any of their names/labels would be genuinely confusing.
+ * Returns "" (renders nothing) if this waystone has no composition
+ * data on file yet, or if deck-compositions.json hasn't loaded -
+ * silent, graceful absence rather than an error or a placeholder,
+ * matching how this app already treats other still-loading/missing
+ * data elsewhere. */
+function deckCompositionHtml(waystoneName, resolutions) {
+  const composition = deckComposition(waystoneName, resolutions, state.deckCompositions);
+  if (!composition) return "";
+  const pills = Object.entries(composition)
+    .filter(([, count]) => count > 0)
+    .map(([category, count]) => `<span class="deck-comp-pill"><span class="deck-comp-count">${count}</span> ${escapeHtml(category)}</span>`)
+    .join("");
+  if (!pills) return "";
+  return `<div class="deck-comp-preview">
+    <p class="deck-comp-label">Expected deck</p>
+    <div class="deck-comp-row">${pills}</div>
+  </div>`;
 }
 
 // Tracks each waystone's checkbox/quantity across re-renders, keyed by
@@ -1451,7 +1478,19 @@ function renderResults() {
               <input type="radio" name="unit-opt-${cardIdx}-${unitIdx}" class="result-check" data-role="unit-skip" data-card="${cardIdx}" data-unit="${unitIdx}" aria-label="Don't build this ${escapeHtml(card.name)}" ${unit.selectedOptionIndex === null ? "checked" : ""} />
               <span class="recipe-line skip-text">Don't build this</span>
             </label>`;
-            return `<div class="result-unit-options">${optionsHtml}${skipHtml}</div>`;
+            // Preview only, computed fresh against current live
+            // inventory - never stored on the unit itself and never
+            // deducts anything, since nothing has actually been built
+            // yet. Shown the moment a real option is picked (not just
+            // once actually built), so a person can sanity-check a
+            // combination before committing to it, per explicit
+            // request - "Don't build this" (selectedOptionIndex still
+            // null) correctly shows nothing to preview.
+            const previewHtml =
+              unit.selectedOptionIndex !== null
+                ? deckCompositionHtml(card.name, resolveUnitRequirement(unit.options[unit.selectedOptionIndex], resultsState.tier))
+                : "";
+            return `<div class="result-unit-options">${optionsHtml}${skipHtml}${previewHtml}</div>`;
           }
 
           // Built: each type in the SELECTED option shows what actually
@@ -1488,7 +1527,14 @@ function renderResults() {
               return `<p class="used-line">${typePrefix}${stackLabel(a.prefix, a.suffix)}${tag}${deckTag}${changeLink}</p>`;
             })
             .join("");
-          return `<div class="result-unit-built"><span class="built-badge">✓</span>${usedLines}</div>`;
+          // Uses the unit's own real, historical resolutions here (not
+          // a fresh preview computation like the not-yet-built branch
+          // above) - once built, this is what genuinely got used, not
+          // a projection. Automatically reflects a "change" swap too,
+          // since this re-renders fresh from unit.resolutions every
+          // time, the same way the used-lines above already do.
+          const compositionHtml = deckCompositionHtml(card.name, unit.resolutions);
+          return `<div class="result-unit-built"><span class="built-badge">✓</span>${usedLines}${compositionHtml}</div>`;
         })
         .join("");
 
@@ -1644,14 +1690,29 @@ function renderResults() {
  * consumed. `requirement` is passed in rather than read from
  * unit.options internally, since the caller is the one that knows which
  * option the user actually selected. */
-function buildUnit(unit, requirement, tier) {
+/** Pure - computes what each type in a requirement would resolve to
+ * (which specific named stack(s), with their tag info) against the
+ * current live inventory, without actually deducting anything. Shared
+ * by buildUnit (which then additionally deducts each allocation) and
+ * the deck-composition preview for a merely-selected, not-yet-built
+ * unit - both need the exact same "which specific stack would this
+ * requirement draw from" computation, just one of them stops short of
+ * actually spending it. */
+function resolveUnitRequirement(requirement, tier) {
+  const resolutions = {};
   Object.entries(requirement).forEach(([type, neededCount]) => {
     const candidates = getFilteredTierTypeCandidates(tier, type, fortuneFilters[tier], omenFilters[tier]);
-    const resolution = resolveTypeAllocation(candidates, neededCount);
+    resolutions[type] = resolveTypeAllocation(candidates, neededCount);
+  });
+  return resolutions;
+}
+
+function buildUnit(unit, requirement, tier) {
+  unit.resolutions = resolveUnitRequirement(requirement, tier);
+  Object.entries(unit.resolutions).forEach(([type, resolution]) => {
     resolution.allocations.forEach((a) => {
       addToInventory(tier, type, a.prefix, a.suffix, a.tagName, a.tagMagnitude, -a.count);
     });
-    unit.resolutions[type] = resolution;
   });
   unit.built = true;
 }
@@ -2017,8 +2078,23 @@ els.manualAddSubmit.addEventListener("click", () => {
     `Added: Tier ${tier} ${prefix} ${type} Rune of ${suffix}${tagSuffix}. Fields stay as-is - add another, or close when done.`;
 });
 
+async function loadDeckCompositions() {
+  try {
+    const res = await fetch("deck-compositions.json");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    state.deckCompositions = await res.json();
+  } catch (err) {
+    // Not fatal to the rest of the app - the deck-composition preview
+    // simply won't render (deckComposition() already returns null for
+    // an unrecognized/missing waystone), same graceful-degradation
+    // approach as everything else this app tries to load.
+    console.error(err);
+  }
+}
+
 // --- Init -----------------------------------------------------------------
 
 renderInventory();
 loadRecipes();
 loadAffixes();
+loadDeckCompositions();
