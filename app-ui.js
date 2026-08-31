@@ -2083,6 +2083,14 @@ async function loadDeckCompositions() {
     const res = await fetch("deck-compositions.json");
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     state.deckCompositions = await res.json();
+    // Without this, a Find Combinations click that happens before this
+    // fetch resolves (a real possibility - this loads independently of,
+    // and not necessarily faster than, recipes.json/rune-affixes.json)
+    // would leave the composition preview silently, permanently absent
+    // for that render, even once this data finishes loading moments
+    // later - nothing was re-rendering to pick it up. renderResults
+    // already no-ops safely if nothing's currently being displayed.
+    renderResults();
   } catch (err) {
     // Not fatal to the rest of the app - the deck-composition preview
     // simply won't render (deckComposition() already returns null for
