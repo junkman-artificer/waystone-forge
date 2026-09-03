@@ -88,21 +88,23 @@ function allocationTagsHtml(prefix, suffix) {
   return affixTagHtml(prefix, false) + affixTagHtml(suffix, true);
 }
 
-// "Deck tag" here means the "+1 Rest"/"+2 Monster" deck-modifier badge -
-// distinct from the trait tags above (affixTagHtml/allocationTagsHtml),
-// which are the bracketed Fortune/Omen indicators. Named and commented
-// explicitly to avoid confusion between the two "tag" concepts, which
-// now appear right next to each other in these same result lines.
-function deckTagHtml(tagName, tagMagnitude) {
-  if (!tagName) return "";
-  return ` <span class="deck-tag">+${tagMagnitude ?? "?"} ${escapeHtml(tagName)}</span>`;
+// "Deck tags" here means the "+1 Rest"/"+2 Monster" deck-modifier
+// badges - distinct from the trait tags above (affixTagHtml/
+// allocationTagsHtml), which are the bracketed Fortune/Omen indicators.
+// Named and commented explicitly to avoid confusion between the two
+// "tag" concepts, which now appear right next to each other in these
+// same result lines. `tags` is an array of { name, magnitude } (a rune
+// can now carry multiple at once) - renders one badge per tag,
+// concatenated, rather than the single badge this used to be.
+function deckTagsHtml(tags) {
+  return (tags || []).map((t) => ` <span class="deck-tag">+${t.magnitude} ${escapeHtml(t.name)}</span>`).join("");
 }
 
 // Plain-text equivalent for <option> labels, which can't render HTML -
 // same reason plainAffixTag exists alongside affixTagHtml above.
-function plainDeckTag(tagName, tagMagnitude) {
-  if (!tagName) return "";
-  return `+${tagMagnitude ?? "?"} ${tagName}`;
+function plainDeckTags(tags) {
+  if (!tags || tags.length === 0) return "";
+  return " (" + tags.map((t) => `+${t.magnitude} ${t.name}`).join(", ") + ")";
 }
 
 /** Renders the "expected deck" preview - the actual resulting card
@@ -184,8 +186,8 @@ const els = {
   manualType: document.getElementById("manual-type"),
   manualFortune: document.getElementById("manual-fortune"),
   manualOmen: document.getElementById("manual-omen"),
-  manualTagName: document.getElementById("manual-tag-name"),
-  manualTagMagnitude: document.getElementById("manual-tag-magnitude"),
+  manualTagRows: document.getElementById("manual-tag-rows"),
+  manualAddTagBtn: document.getElementById("manual-add-tag"),
 };
 
 // --- Troubleshooting Mode -------------------------------------------------
@@ -508,13 +510,21 @@ function rowHtml(row, fortuneNames, omenNames) {
           <select data-role="suffix">${affixOptions(omenNames, row.suffix)}</select>
           ${row.suggestedSuffix ? `<button type="button" class="suggestion-chip" data-role="apply-suggestion" data-id="${row.id}" data-field="suffix" data-value="${escapeHtml(row.suggestedSuffix)}">Did you mean ${escapeHtml(row.suggestedSuffix)}?</button>` : ""}
         </label>
-        <label class="affix-field">
-          <span class="affix-label">Tag</span>
-          <div class="tag-combo">
-            <span class="tag-plus">+</span>
-            <input type="number" min="0" step="1" class="tag-magnitude-input" data-role="tagMagnitude" value="${row.tagMagnitude ?? ""}" placeholder="?" />
-            <select data-role="tagName">${affixOptions(TAG_NAMES, row.tagName)}</select>
+        <label class="affix-field tag-field-multi">
+          <span class="affix-label">Tag${row.expectedTagCount != null ? ` <span class="tag-count-hint">(${row.tags.length}/${row.expectedTagCount} found)</span>` : ""}</span>
+          <div class="tag-rows" data-role="tag-rows">
+            ${row.tags
+              .map(
+                (t, tagIdx) => `<div class="tag-combo">
+                  <span class="tag-plus">+</span>
+                  <input type="number" min="0" step="1" class="tag-magnitude-input" data-role="tagMagnitude" data-tag-index="${tagIdx}" value="${t.magnitude ?? ""}" placeholder="?" />
+                  <select data-role="tagName" data-tag-index="${tagIdx}">${affixOptions(TAG_NAMES, t.name, false)}</select>
+                  <button type="button" class="link-btn" data-role="remove-tag" data-tag-index="${tagIdx}" aria-label="Remove this tag">×</button>
+                </div>`
+              )
+              .join("")}
           </div>
+          <button type="button" class="link-btn" data-role="add-tag">+ add tag</button>
           <button type="button" class="link-btn" data-role="show-crop" data-id="${row.id}">show rune</button>
         </label>
       </div>
@@ -604,51 +614,70 @@ function renderPendingRows() {
     rowEl.querySelector('[data-role="prefix"]').addEventListener("change", (e) => {
       row.prefix = e.target.value || null;
       row.suggestedPrefix = null; // the field's been resolved (or explicitly cleared) either way - stop suggesting
-      row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tagName, row.tagMagnitude);
+      row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount);
       row.needsReview = row.missingParts.length > 0;
       refreshDuplicateFlags();
     });
     rowEl.querySelector('[data-role="suffix"]').addEventListener("change", (e) => {
       row.suffix = e.target.value || null;
       row.suggestedSuffix = null;
-      row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tagName, row.tagMagnitude);
+      row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount);
       row.needsReview = row.missingParts.length > 0;
       refreshDuplicateFlags();
     });
-    rowEl.querySelector('[data-role="tagName"]').addEventListener("change", (e) => {
-      row.tagName = e.target.value || null;
-      // Selecting Unknown clears magnitude too, and visually resets the
-      // number input to match - same "these two travel together" rule
-      // as the manual-add dialog, so a stale leftover number can't sit
-      // next to an Unknown tag name.
-      if (!row.tagName) {
-        row.tagMagnitude = null;
-        rowEl.querySelector('[data-role="tagMagnitude"]').value = "";
-      }
-      row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tagName, row.tagMagnitude);
-      row.needsReview = row.missingParts.length > 0;
-      refreshDuplicateFlags();
+
+    // Tag rows are dynamic (a rune can carry zero to several at once),
+    // so unlike prefix/suffix's single, fixed control, these are wired
+    // per-index and any add/remove/edit triggers a full re-render
+    // (via refreshDuplicateFlags) - simpler and safer than trying to
+    // keep a variable-length list's indices correctly bound through
+    // incremental DOM surgery. This does mean typing a tag's magnitude
+    // no longer updates the needs-review status live per keystroke the
+    // way the old single-tag input did (that surgical, no-full-render
+    // technique doesn't generalize cleanly to a dynamic, indexed list) -
+    // a known, accepted simplification given the scope of this rework,
+    // not an oversight.
+    rowEl.querySelectorAll('[data-role="tagName"]').forEach((sel) => {
+      sel.addEventListener("change", (e) => {
+        const idx = parseInt(e.target.dataset.tagIndex, 10);
+        if (!row.tags[idx]) return;
+        row.tags[idx].name = e.target.value || null;
+        row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount);
+        row.needsReview = row.missingParts.length > 0;
+        refreshDuplicateFlags();
+      });
     });
-    rowEl.querySelector('[data-role="tagMagnitude"]').addEventListener("input", (e) => {
-      // "input" (fires per keystroke) rather than relying only on
-      // "change" (fires on blur) - lets the needs-review status update
-      // live as the user types, the same way selecting a Fortune/Omen/
-      // Tag name from a dropdown already does immediately. Uses the
-      // lightweight, targeted update helper rather than a full
-      // re-render, since re-rendering here would rebuild this exact
-      // input's own DOM node and kick it out of focus mid-typing.
-      row.tagMagnitude = parseInt(e.target.value, 10) || null;
-      row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tagName, row.tagMagnitude);
-      row.needsReview = row.missingParts.length > 0;
-      updateRowNeedsReviewUI(rowEl, row);
+    rowEl.querySelectorAll('[data-role="tagMagnitude"]').forEach((input) => {
+      input.addEventListener("change", (e) => {
+        const idx = parseInt(e.target.dataset.tagIndex, 10);
+        if (!row.tags[idx]) return;
+        row.tags[idx].magnitude = parseInt(e.target.value, 10) || 0;
+        row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount);
+        row.needsReview = row.missingParts.length > 0;
+        refreshDuplicateFlags();
+      });
     });
-    rowEl.querySelector('[data-role="tagMagnitude"]').addEventListener("change", () => {
-      // Duplicate re-checking is heavier (re-renders the full list) and
-      // only needs to happen once the value is actually settled, not on
-      // every keystroke - deferred to blur/change, using data the
-      // "input" listener above has already kept correct the whole time.
-      refreshDuplicateFlags();
+    rowEl.querySelectorAll('[data-role="remove-tag"]').forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = parseInt(btn.dataset.tagIndex, 10);
+        row.tags.splice(idx, 1);
+        row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount);
+        row.needsReview = row.missingParts.length > 0;
+        refreshDuplicateFlags();
+      });
     });
+    const addTagBtn = rowEl.querySelector('[data-role="add-tag"]');
+    if (addTagBtn) {
+      addTagBtn.addEventListener("click", () => {
+        // A fresh, unresolved tag - the person picks its name and
+        // magnitude from the newly-rendered row, same starting state as
+        // any OCR-unresolved tag would have.
+        row.tags.push({ name: null, magnitude: null });
+        row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount);
+        row.needsReview = row.missingParts.length > 0;
+        refreshDuplicateFlags();
+      });
+    }
   });
 
   els.pendingRows.querySelectorAll('[data-role="apply-suggestion"]').forEach((btn) => {
@@ -663,7 +692,7 @@ function renderPendingRows() {
       // needs its own suggestion shown.
       if (field === "prefix") row.suggestedPrefix = null;
       else row.suggestedSuffix = null;
-      row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tagName, row.tagMagnitude);
+      row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount);
       row.needsReview = row.missingParts.length > 0;
       refreshDuplicateFlags();
     });
@@ -707,7 +736,11 @@ function renderPendingRows() {
         // asked to see the name and tag together for real context on
         // which rune this actually is, not the tag in isolation.
         const cropTop = Math.max(0, row.top);
-        const cropBottom = Math.min(img.naturalHeight, row.tagCropBottom);
+        // Prefers the precise, real-badge-boundary-derived region when
+        // available (a tighter, more accurate crop than the generous,
+        // geometry-detection-only region tagCropBottom now represents)
+        // - same reasoning and fallback order as the text-retry pass.
+        const cropBottom = Math.min(img.naturalHeight, row.preciseTagCropBottom ?? row.tagCropBottom);
         const cropHeight = cropBottom - cropTop;
         if (cropHeight <= 0) {
           preview.textContent = "Couldn't determine a valid crop region for this row.";
@@ -788,7 +821,7 @@ function refreshDuplicateFlags() {
 els.confirmBtn.addEventListener("click", () => {
   state.pendingRows
     .filter((r) => r.included)
-    .forEach((r) => addToInventory(r.tier, r.type, r.prefix, r.suffix, r.tagName, r.tagMagnitude, 1));
+    .forEach((r) => addToInventory(r.tier, r.type, r.prefix, r.suffix, r.tags, 1));
   saveInventory();
   state.pendingRows = [];
   screenshotCounter = 0; // fresh numbering for the next review session
@@ -855,12 +888,18 @@ function renderInventory() {
             item.prefix && item.suffix
               ? `${escapeHtml(item.prefix)} ${item.type} Rune of ${escapeHtml(item.suffix)}`
               : `${item.type} Rune (Fortune/Omen unknown)`;
-          // "Deck tag" here means the "+1 Rest"/"+2 Monster" deck-modifier
-          // badge - distinct from the existing bracketed trait tags
-          // ([+Spellbook], <Heal>) shown elsewhere for Fortune/Omen.
-          const deckTag = item.tagName
-            ? ` <span class="deck-tag">+${item.tagMagnitude ?? "?"} ${escapeHtml(item.tagName)}</span>`
-            : ` <span class="deck-tag deck-tag-unknown">Tag unknown</span>`;
+          // "Deck tags" here means the "+1 Rest"/"+2 Monster" deck-
+          // modifier badges - distinct from the existing bracketed
+          // trait tags ([+Spellbook], <Heal>) shown elsewhere for
+          // Fortune/Omen. A rune can carry zero, one, or multiple at
+          // once - no separate "Tag unknown" fallback case here
+          // (unlike before) since that distinction is no longer
+          // reliably knowable once an item has actually reached
+          // inventory: an empty tags array could genuinely mean this
+          // rune has none, confirmed via geometric badge-count, or
+          // could mean a still-needs-review row got manually confirmed
+          // anyway - deckTagsHtml already renders correctly either way.
+          const deckTag = deckTagsHtml(item.tags);
           // Only shown when it's actually informative - a real stack (2+
           // identical named runes merged into one row) still needs to be
           // visible, a routine single rune doesn't need a "1" next to it.
@@ -894,7 +933,7 @@ function renderInventory() {
       const item = state.inventory[oldKey];
       if (!item || newTier === item.tier) return;
 
-      const newKey = itemKey(newTier, item.type, item.prefix, item.suffix, item.tagName, item.tagMagnitude);
+      const newKey = itemKey(newTier, item.type, item.prefix, item.suffix, item.tags);
       delete state.inventory[oldKey];
       if (state.inventory[newKey]) {
         state.inventory[newKey].count += item.count;
@@ -904,8 +943,7 @@ function renderInventory() {
           type: item.type,
           prefix: item.prefix,
           suffix: item.suffix,
-          tagName: item.tagName,
-          tagMagnitude: item.tagMagnitude,
+          tags: item.tags,
           count: item.count,
         };
       }
@@ -1513,13 +1551,13 @@ function renderResults() {
                 // Split across multiple stacks - flat text, no "change"
                 // affordance (see resolveTypeAllocation for why).
                 const parts = res.allocations
-                  .map((a) => `${a.count}× ${stackLabel(a.prefix, a.suffix)}${allocationTagsHtml(a.prefix, a.suffix)}${deckTagHtml(a.tagName, a.tagMagnitude)}`)
+                  .map((a) => `${a.count}× ${stackLabel(a.prefix, a.suffix)}${allocationTagsHtml(a.prefix, a.suffix)}${deckTagsHtml(a.tags)}`)
                   .join(" + ");
                 return `<p class="used-line">${typePrefix}${parts}</p>`;
               }
               const a = res.allocations[0];
               const tag = allocationTagsHtml(a.prefix, a.suffix);
-              const deckTag = deckTagHtml(a.tagName, a.tagMagnitude);
+              const deckTag = deckTagsHtml(a.tags);
               const changeLink =
                 res.alternatives && res.alternatives.length > 1
                   ? `<button type="button" class="link-btn" data-role="change-alloc" data-card="${cardIdx}" data-unit="${unitIdx}" data-type="${t}">change</button>`
@@ -1711,7 +1749,7 @@ function buildUnit(unit, requirement, tier) {
   unit.resolutions = resolveUnitRequirement(requirement, tier);
   Object.entries(unit.resolutions).forEach(([type, resolution]) => {
     resolution.allocations.forEach((a) => {
-      addToInventory(tier, type, a.prefix, a.suffix, a.tagName, a.tagMagnitude, -a.count);
+      addToInventory(tier, type, a.prefix, a.suffix, a.tags, -a.count);
     });
   });
   unit.built = true;
@@ -1750,14 +1788,14 @@ function formatChecklistItemLines(item) {
       if (res.allocations.length > 1) {
         const parts = res.allocations
           .map((a) => {
-            const deckTag = plainDeckTag(a.tagName, a.tagMagnitude);
+            const deckTag = plainDeckTags(a.tags);
             return `${a.count}x ${plainStackLabel(a.prefix, a.suffix)}${deckTag ? " " + deckTag : ""}`;
           })
           .join(" + ");
         return `${typePrefix}${parts}`;
       }
       const a = res.allocations[0];
-      const deckTag = plainDeckTag(a.tagName, a.tagMagnitude);
+      const deckTag = plainDeckTags(a.tags);
       return `${typePrefix}${plainStackLabel(a.prefix, a.suffix)}${deckTag ? " " + deckTag : ""}`;
     })
     .join(" · ");
@@ -1961,7 +1999,7 @@ function showChangeDropdown(linkEl, cardIdx, unitIdx, type) {
   const options = res.alternatives
     .map((alt) => {
       const tags = `${plainAffixTag(alt.prefix, false)} ${plainAffixTag(alt.suffix, true)}`.trim();
-      const deckTag = plainDeckTag(alt.tagName, alt.tagMagnitude);
+      const deckTag = plainDeckTags(alt.tags);
       const label = `${stackLabel(alt.prefix, alt.suffix)} (${alt.count} left)${tags ? " " + tags : ""}${deckTag ? " " + deckTag : ""}`;
       const selected = alt.key === current.key ? "selected" : "";
       return `<option value="${escapeHtml(alt.key)}" ${selected}>${label}</option>`;
@@ -1978,8 +2016,8 @@ function showChangeDropdown(linkEl, cardIdx, unitIdx, type) {
     if (!chosen || chosen.key === current.key) return;
     // Undo the old allocation, apply the new one - both at the exact
     // count this line needed, never the whole stack.
-    addToInventory(resultsState.tier, type, current.prefix, current.suffix, current.tagName, current.tagMagnitude, current.count);
-    addToInventory(resultsState.tier, type, chosen.prefix, chosen.suffix, chosen.tagName, chosen.tagMagnitude, -current.count);
+    addToInventory(resultsState.tier, type, current.prefix, current.suffix, current.tags, current.count);
+    addToInventory(resultsState.tier, type, chosen.prefix, chosen.suffix, chosen.tags, -current.count);
     unit.resolutions[type] = { ...res, allocations: [{ ...chosen, count: current.count }] };
     saveInventory();
     refreshInventoryViews();
@@ -2005,23 +2043,48 @@ RUNE_TYPES.forEach((t) => {
   opt.textContent = t;
   els.manualType.appendChild(opt);
 });
-// Tag also doesn't depend on affixState, so it populates once here too.
-// Unlike Fortune/Omen (confirmed every rune definitely has both), it's
-// genuinely unclear whether every rune has a tag at all - so unlike the
-// manual-add dialog's other dropdowns, this one keeps a real "None"
-// option rather than forcing a selection.
-(() => {
-  const none = document.createElement("option");
-  none.value = "";
-  none.textContent = "None";
-  els.manualTagName.appendChild(none);
-  TAG_NAMES.forEach((t) => {
-    const opt = document.createElement("option");
-    opt.value = t;
-    opt.textContent = t;
-    els.manualTagName.appendChild(opt);
+// Tag rows are dynamic (a rune can carry zero to several tags at once,
+// mirroring the OCR-review row's own multi-tag UI) - manualDialogTags
+// holds the dialog's own working list, reset fresh each time it opens,
+// and renderManualTagRows rebuilds the container from it on every
+// add/remove/edit, the same full-rebuild approach used for the OCR
+// review list's own dynamic tag rows.
+let manualDialogTags = [];
+
+function renderManualTagRows() {
+  els.manualTagRows.innerHTML = manualDialogTags
+    .map(
+      (t, idx) => `<div class="tag-combo">
+        <span class="tag-plus">+</span>
+        <input type="number" min="0" step="1" class="tag-magnitude-input" data-tag-index="${idx}" value="${t.magnitude ?? ""}" placeholder="?" />
+        <select data-tag-index="${idx}">${affixOptions(TAG_NAMES, t.name, false)}</select>
+        <button type="button" class="link-btn" data-tag-index="${idx}" aria-label="Remove this tag">×</button>
+      </div>`
+    )
+    .join("");
+
+  els.manualTagRows.querySelectorAll("select").forEach((sel) => {
+    sel.addEventListener("change", (e) => {
+      manualDialogTags[parseInt(e.target.dataset.tagIndex, 10)].name = e.target.value || null;
+    });
   });
-})();
+  els.manualTagRows.querySelectorAll("input").forEach((input) => {
+    input.addEventListener("change", (e) => {
+      manualDialogTags[parseInt(e.target.dataset.tagIndex, 10)].magnitude = parseInt(e.target.value, 10) || 0;
+    });
+  });
+  els.manualTagRows.querySelectorAll("button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      manualDialogTags.splice(parseInt(btn.dataset.tagIndex, 10), 1);
+      renderManualTagRows();
+    });
+  });
+}
+
+els.manualAddTagBtn.addEventListener("click", () => {
+  manualDialogTags.push({ name: null, magnitude: null });
+  renderManualTagRows();
+});
 
 function openManualAddDialog() {
   // Fortune/Omen depend on affixState, which loads asynchronously (see
@@ -2035,8 +2098,8 @@ function openManualAddDialog() {
   const omenNames = (affixState.data?.omens?.map((o) => o.name) || []).sort();
   els.manualFortune.innerHTML = affixOptions(fortuneNames, null, false);
   els.manualOmen.innerHTML = affixOptions(omenNames, null, false);
-  els.manualTagName.value = "";
-  els.manualTagMagnitude.value = "";
+  manualDialogTags = [];
+  renderManualTagRows();
   els.manualAddStatus.textContent = "";
   els.manualAddDialog.showModal();
 }
@@ -2049,13 +2112,14 @@ els.manualAddSubmit.addEventListener("click", () => {
   const type = els.manualType.value;
   const prefix = els.manualFortune.value || null;
   const suffix = els.manualOmen.value || null;
-  // If Tag is left on "None", magnitude is forced to null regardless of
-  // whatever's sitting in that input - avoids an inconsistent state
-  // where a stray number is entered but no tag name is actually chosen.
-  const tagName = els.manualTagName.value || null;
-  const tagMagnitude = tagName ? parseInt(els.manualTagMagnitude.value, 10) || null : null;
+  // A tag row left on "None" (or added via "+ add tag" and never
+  // actually given a name) doesn't become a real, stored tag - filtered
+  // out here rather than kept as a { name: null, ... } entry, the same
+  // "an unnamed tag isn't a tag" rule the OCR review flow's own
+  // completeness check already applies.
+  const tags = manualDialogTags.filter((t) => t.name);
 
-  addToInventory(tier, type, prefix, suffix, tagName, tagMagnitude, 1);
+  addToInventory(tier, type, prefix, suffix, tags, 1);
   saveInventory();
   refreshInventoryViews();
 
@@ -2071,9 +2135,9 @@ els.manualAddSubmit.addEventListener("click", () => {
   // meant, not just a partial one. Fortune/Omen can no longer come back
   // null from this dialog (see affixOptions' includeUnknown), so unlike
   // the OCR review flow there's no "unknown" case left to account for -
-  // Tag is the one field here that CAN still be "None", since that's a
-  // real, expected choice for this dropdown specifically.
-  const tagSuffix = tagName ? ` (+${tagMagnitude ?? "?"} ${tagName})` : "";
+  // Tag is the one field here that can still be empty, since that's a
+  // real, expected choice (not adding any tag rows at all).
+  const tagSuffix = tags.length > 0 ? ` (${tags.map((t) => `+${t.magnitude ?? "?"} ${t.name}`).join(", ")})` : "";
   els.manualAddStatus.textContent =
     `Added: Tier ${tier} ${prefix} ${type} Rune of ${suffix}${tagSuffix}. Fields stay as-is - add another, or close when done.`;
 });

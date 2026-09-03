@@ -74,6 +74,18 @@ const CONFIG = {
   // still-unresolved row (not per screenshot), roughly proportional to
   // how many rows still need it after the main pass.
   OCR_TAG_CROP_UPSCALE_FACTOR: 8,
+  // How different a pixel's color has to be from the detected
+  // background reference (0-255 per-channel average difference) before
+  // it counts as "part of a badge" rather than background - tuned to
+  // tolerate anti-aliasing/JPEG-ish noise at a badge's soft edges
+  // without either missing real badges or picking up background
+  // texture/scratches as false badges.
+  BADGE_COLOR_THRESHOLD: 30,
+  // Minimum fraction of a pixel row that has to differ from background
+  // before that whole row counts as "inside a badge" - a stray colored
+  // pixel or two shouldn't flip a row, but a badge's own solid fill
+  // should comfortably clear this.
+  BADGE_ROW_COVERAGE_THRESHOLD: 0.3,
   // Safety cap on how many allocation attempts the recipe solver will try
   // before giving up, so a huge multi-waystone query can't hang the tab.
   SOLVER_NODE_LIMIT: 200000,
@@ -126,33 +138,55 @@ const TYPE_ICONS = {
 // State
 // ---------------------------------------------------------------------
 const state = {
-  // Keyed by tier|type|prefix|suffix|tagName|tagMagnitude - see itemKey().
-  // Each value is { tier, type, prefix, suffix, tagName, tagMagnitude,
-  // count }. Items with no prefix/suffix (OCR couldn't read a name, or a
+  // Keyed by tier|type|prefix|suffix|tags - see itemKey(). Each value is
+  // { tier, type, prefix, suffix, tags, count }, where tags is an array
+  // of { name, magnitude } objects (possibly empty - a rune can
+  // genuinely carry zero, one, or multiple deck-modifier tags at once,
+  // confirmed via a real screenshot showing runes with 2 and 3 tags
+  // each). Items with no prefix/suffix (OCR couldn't read a name, or a
   // manual adjustment with no name specified) share the "Unknown|Unknown"
-  // bucket per tier+type+tag. Same for tagName/tagMagnitude - no tag
-  // read/entered falls into the tag-Unknown bucket for that combination.
+  // bucket per tier+type+tags. Two runes with the same tags, just listed
+  // in a different order, are still treated as the same stack - itemKey
+  // sorts tags before building the key specifically so order never
+  // matters for merging.
   inventory: loadInventory(),
   pendingRows: [], // rows from the most recent screenshot, awaiting confirm
   waystoneData: null, // loaded from recipes.json
   deckCompositions: null, // loaded from deck-compositions.json
 };
 
-function itemKey(tier, type, prefix, suffix, tagName, tagMagnitude) {
-  return `${tier}|${type}|${prefix || "Unknown"}|${suffix || "Unknown"}|${tagName || "Unknown"}|${tagMagnitude ?? "Unknown"}`;
+/** Stable, order-independent serialization of a tags array (a rune's
+ * tags being read/entered in a different order than another otherwise-
+ * identical rune must still produce the same key, so they correctly
+ * merge into one stack) - used by itemKey and nowhere else, since
+ * nothing else needs this exact string shape. */
+function tagsKeyPart(tags) {
+  return (
+    (tags || [])
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name) || a.magnitude - b.magnitude)
+      .map((t) => `${t.name}:${t.magnitude}`)
+      .join(",") || "None"
+  );
+}
+
+function itemKey(tier, type, prefix, suffix, tags) {
+  return `${tier}|${type}|${prefix || "Unknown"}|${suffix || "Unknown"}|${tagsKeyPart(tags)}`;
 }
 
 /**
  * Normalizes inventory data to the current { tier, type, prefix, suffix,
- * tagName, tagMagnitude, count } shape. Handles the pre-prefix/suffix
- * format, where values were plain counts keyed by "tier|type" - those
- * fold into that tier+type's Unknown/Unknown/no-tag bucket. Also
- * re-keys any entry saved before tag tracking existed (has tier/type/
- * prefix/suffix/count but no tagName/tagMagnitude) under the current
- * itemKey signature, rather than passing its old key through unchanged -
- * tag fields default to null/Unknown for these, but the key itself has
- * to be recomputed so the entry stays correctly addressable and merges
- * properly with anything added later under the new scheme.
+ * tags, count } shape. Handles the pre-prefix/suffix format, where
+ * values were plain counts keyed by "tier|type" - those fold into that
+ * tier+type's Unknown/Unknown/no-tags bucket. Also re-keys any entry
+ * saved under an earlier shape - either no tag fields at all (from
+ * before tag tracking existed), or the old singular tagName/
+ * tagMagnitude pair (from before multi-tag support) - into the current
+ * tags-array shape. A singular tagName/tagMagnitude pair becomes a
+ * one-element tags array; missing entirely becomes an empty array. The
+ * key itself always gets recomputed rather than passing an old key
+ * through unchanged, so every entry stays correctly addressable and
+ * merges properly with anything added later under the current scheme.
  */
 function migrateInventory(raw) {
   const migrated = {};
@@ -161,23 +195,29 @@ function migrateInventory(raw) {
       const [tierStr, type] = key.split("|");
       const tier = parseInt(tierStr, 10);
       if (!type || Number.isNaN(tier)) return;
-      const newKey = itemKey(tier, type, null, null, null, null);
+      const newKey = itemKey(tier, type, null, null, []);
       if (!migrated[newKey]) {
-        migrated[newKey] = { tier, type, prefix: null, suffix: null, tagName: null, tagMagnitude: null, count: 0 };
+        migrated[newKey] = { tier, type, prefix: null, suffix: null, tags: [], count: 0 };
       }
       migrated[newKey].count += value;
     } else if (value && typeof value === "object" && typeof value.count === "number") {
-      const tagName = value.tagName || null;
-      const tagMagnitude = value.tagMagnitude ?? null;
-      const newKey = itemKey(value.tier, value.type, value.prefix, value.suffix, tagName, tagMagnitude);
+      let tags;
+      if (Array.isArray(value.tags)) {
+        tags = value.tags;
+      } else if (value.tagName) {
+        // Old singular shape - wrap into a one-element array.
+        tags = [{ name: value.tagName, magnitude: value.tagMagnitude ?? 1 }];
+      } else {
+        tags = [];
+      }
+      const newKey = itemKey(value.tier, value.type, value.prefix, value.suffix, tags);
       if (!migrated[newKey]) {
         migrated[newKey] = {
           tier: value.tier,
           type: value.type,
           prefix: value.prefix || null,
           suffix: value.suffix || null,
-          tagName,
-          tagMagnitude,
+          tags,
           count: 0,
         };
       }
@@ -202,16 +242,18 @@ function saveInventory() {
 
 /** Adds (or subtracts, for a negative delta) to a specific named item's
  * count, creating the entry if needed and removing it if it hits zero. */
-function addToInventory(tier, type, prefix, suffix, tagName, tagMagnitude, delta) {
-  const key = itemKey(tier, type, prefix, suffix, tagName, tagMagnitude);
+/** Adds (or subtracts, for a negative delta) to a specific named item's
+ * count, creating the entry if needed and removing it if it hits zero.
+ * `tags` is an array of { name, magnitude } objects (can be empty). */
+function addToInventory(tier, type, prefix, suffix, tags, delta) {
+  const key = itemKey(tier, type, prefix, suffix, tags);
   if (!state.inventory[key]) {
     state.inventory[key] = {
       tier,
       type,
       prefix: prefix || null,
       suffix: suffix || null,
-      tagName: tagName || null,
-      tagMagnitude: tagMagnitude ?? null,
+      tags: tags || [],
       count: 0,
     };
   }
@@ -257,8 +299,7 @@ function getFilteredTierTypeCandidates(tier, type, allowedFortunes, avoidedOmens
       key,
       prefix: item.prefix,
       suffix: item.suffix,
-      tagName: item.tagName,
-      tagMagnitude: item.tagMagnitude,
+      tags: item.tags,
       count: item.count,
     });
   });
@@ -300,8 +341,7 @@ function resolveTypeAllocation(candidates, neededCount) {
           key: chosen.key,
           prefix: chosen.prefix,
           suffix: chosen.suffix,
-          tagName: chosen.tagName,
-          tagMagnitude: chosen.tagMagnitude,
+          tags: chosen.tags,
           count: neededCount,
         },
       ],
@@ -321,8 +361,7 @@ function resolveTypeAllocation(candidates, neededCount) {
         key: c.key,
         prefix: c.prefix,
         suffix: c.suffix,
-        tagName: c.tagName,
-        tagMagnitude: c.tagMagnitude,
+        tags: c.tags,
         count: take,
       });
       remaining -= take;
@@ -421,14 +460,74 @@ async function parseScreenshot(imgEl, onProgress, affixes) {
 
   const rows = clusterAndExtract(lines, imgHeight, affixes);
 
-  // Second, targeted pass: for any row still missing a tag after the
-  // main whole-image pass, crop just its predicted tag-badge region
-  // (see tagCropTop/tagCropBottom in clusterAndExtract) and retry OCR
-  // on that small crop alone, upscaled far more aggressively than the
-  // whole image could be without a heavy global speed cost. Run
-  // sequentially (not in parallel via Promise.all) to avoid multiple
-  // simultaneous Tesseract workers contending for resources.
-  const needsRetry = rows.filter((r) => r.tagName === null && r.tagCropTop != null);
+  // First, geometric phase: for every row with a valid tag-crop region,
+  // count the actual colored badge shapes present - independent of
+  // whether OCR could read any text inside them. This is what resolves
+  // the "genuinely zero tags" vs. "OCR just hasn't found any yet"
+  // ambiguity a text-only signal can't - a rune can now carry multiple
+  // tags at once (confirmed via a real screenshot showing 2 and 3 on
+  // individual runes), so "found 1 text match" is no longer enough on
+  // its own to know whether that row is actually complete.
+  //
+  // Deliberately drawn WITHOUT grayscale and at a modest (not the
+  // aggressive OCR_TAG_CROP_UPSCALE_FACTOR) upscale - this crop is only
+  // ever fed to countTagBadgeRows, which needs the real, distinguishing
+  // badge colors intact, not Tesseract, so neither of those two
+  // OCR-specific preprocessing steps apply or would help here.
+  const badgeCountDebug = [];
+  rows.forEach((row) => {
+    if (row.tagCropTop == null || row.tagCropBottom == null) return;
+    const cropTop = Math.max(0, row.tagCropTop);
+    const cropBottom = Math.min(naturalHeight, row.tagCropBottom);
+    const cropHeight = cropBottom - cropTop;
+    if (cropHeight <= 0) return;
+
+    const geomCanvas = document.createElement("canvas");
+    const geomScale = 2; // modest - just needs to be legible to a color-band scan, not to Tesseract
+    geomCanvas.width = naturalWidth * geomScale;
+    geomCanvas.height = cropHeight * geomScale;
+    const geomCtx = geomCanvas.getContext("2d");
+    geomCtx.drawImage(imgEl, 0, cropTop, naturalWidth, cropHeight, 0, 0, geomCanvas.width, geomCanvas.height);
+    const imageData = geomCtx.getImageData(0, 0, geomCanvas.width, geomCanvas.height);
+    const getPixel = (x, y) => {
+      const i = (y * geomCanvas.width + x) * 4;
+      return [imageData.data[i], imageData.data[i + 1], imageData.data[i + 2]];
+    };
+    const badges = countTagBadgeRows(getPixel, geomCanvas.width, geomCanvas.height);
+    row.expectedTagCount = badges.length;
+    row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount);
+    row.needsReview = row.missingParts.length > 0;
+    // A precise crop for the text-retry pass below, bounded by the
+    // REAL detected badges' own edges (converted back from this scaled,
+    // cropped-region coordinate space into original screenshot pixel
+    // space) rather than reusing this generous, geometry-detection-only
+    // region - giving Tesseract a tight, accurate area to read from
+    // rather than one that may extend well past the actual badges into
+    // unrelated content underneath, which risks exactly the kind of
+    // garbled, concatenated-digit misread ("+72" instead of a real "+2")
+    // a retry crop bleeding into adjacent text could produce. Left
+    // undefined (falls back to the generous region) when zero badges
+    // were detected - there's nothing real to precisely bound in that
+    // case, and needsRetry below only fires when short of tags anyway.
+    if (badges.length > 0) {
+      const margin = typicalLineHeight * 0.3;
+      row.preciseTagCropTop = cropTop + badges[0].top / geomScale - margin;
+      row.preciseTagCropBottom = cropTop + badges[badges.length - 1].bottom / geomScale + margin;
+    }
+    badgeCountDebug.push({ rowLabel: `${row.prefix || "?"} ${row.type} of ${row.suffix || "?"}`, badgeCount: badges.length, tagsFoundByText: row.tags.length });
+  });
+
+  // Second, targeted OCR pass: for any row where fewer tags were
+  // actually resolved than badges are genuinely visible, crop just its
+  // predicted tag-badge region (the precise, badge-boundary-derived
+  // region above when available, falling back to the original,
+  // generous tagCropTop/tagCropBottom from clusterAndExtract otherwise)
+  // and retry OCR on that small crop alone, upscaled far more
+  // aggressively than the whole image could be without a heavy global
+  // speed cost. Run sequentially (not in parallel via Promise.all) to
+  // avoid multiple simultaneous Tesseract workers contending for
+  // resources.
+  const needsRetry = rows.filter((r) => r.tags.length < (r.expectedTagCount ?? 0) && r.tagCropTop != null);
   const cropFactor = CONFIG.OCR_TAG_CROP_UPSCALE_FACTOR;
   // Captures what the second pass actually saw/produced for every row
   // it retried, success or failure - surfaced in the debug panel so a
@@ -450,8 +549,14 @@ async function parseScreenshot(imgEl, onProgress, affixes) {
     }
 
     const rowLabel = `${row.prefix || "?"} ${row.type} of ${row.suffix || "?"}`;
-    const cropTop = Math.max(0, row.tagCropTop);
-    const cropBottom = Math.min(naturalHeight, row.tagCropBottom);
+    // Prefer the precise, real-badge-boundary-derived region computed
+    // above over the original, generous tagCropTop/tagCropBottom - only
+    // falls back to the generous region if badge detection somehow
+    // found nothing (shouldn't normally happen here, since needsRetry
+    // above requires expectedTagCount > 0, meaning at least one real
+    // badge was detected and preciseTagCrop* should be set).
+    const cropTop = Math.max(0, row.preciseTagCropTop ?? row.tagCropTop);
+    const cropBottom = Math.min(naturalHeight, row.preciseTagCropBottom ?? row.tagCropBottom);
     const cropHeight = cropBottom - cropTop;
     if (cropHeight <= 0) {
       tagRetryDebug.push({ rowLabel, cropTop, cropBottom, lines: [], matched: false, skippedReason: "invalid crop height" });
@@ -517,30 +622,33 @@ async function parseScreenshot(imgEl, onProgress, affixes) {
 
     const cropLines = cropData.lines || [];
     const cropText = cropLines.map((l) => l.text).join(" ");
-    const cropMatch = cropText.match(tagRegex);
-    let matched = false;
-    if (cropMatch) {
-      const matchedTagName = TAG_NAMES.find((t) => t.toLowerCase() === cropMatch[2].toLowerCase());
-      if (matchedTagName) {
-        row.tagName = matchedTagName;
-        row.tagMagnitude = parseInt(cropMatch[1], 10);
-        row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tagName, row.tagMagnitude);
-        row.needsReview = row.missingParts.length > 0;
-        matched = true;
-      }
-    }
+    // Multiple tags can genuinely sit within one retry crop (the same
+    // reason clusterAndExtract's own first pass now uses
+    // findAllTagMatches too) - every match found here gets merged in,
+    // not just the first. Only genuinely NEW tags are added (an exact
+    // {name, magnitude} pair already present from the first pass is
+    // skipped) - this crop covers the same region the first pass
+    // already saw, so a repeat match is the same badge being read
+    // again, not a second, distinct one.
+    const newMatches = findAllTagMatches(cropText).filter(
+      (m) => !row.tags.some((existing) => existing.name === m.name && existing.magnitude === m.magnitude)
+    );
+    row.tags = [...row.tags, ...newMatches];
+    row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount);
+    row.needsReview = row.missingParts.length > 0;
     tagRetryDebug.push({
       rowLabel,
       cropTop,
       cropBottom,
       lines: cropLines.map((l) => ({ text: l.text, confidence: l.confidence })),
-      matched,
+      matched: newMatches.length > 0,
+      newTagsFound: newMatches.length,
     });
   }
 
   // rawLines is returned (not just logged) so the UI can show exactly
   // what Tesseract detected directly on the page - no DevTools required.
-  return { rows, rawLines: lines, tagRetryDebug };
+  return { rows, rawLines: lines, tagRetryDebug, badgeCountDebug };
 }
 
 /**
@@ -588,6 +696,124 @@ function findAllAffixMatches(text, matcher) {
     if (canonical) found.add(canonical);
   }
   return [...found];
+}
+
+/** Finds every "+N TagName" pattern in text (a rune can now carry
+ * multiple tags at once - confirmed via a real screenshot showing 2 and
+ * 3 tags on individual runes). Unlike findAllAffixMatches (which only
+ * cares about distinct names, since two runes can't both have "the
+ * same" Omen twice), this keeps every match's own magnitude and does
+ * NOT deduplicate by name - two genuinely separate badges showing the
+ * same category (e.g. two distinct "+1 Monster" badges) are two real
+ * tags, not one. Deliberately does not cap the result at any particular
+ * length here; whether a match count is plausible against what's
+ * geometrically visible is countTagBadgeRows' job, not this function's -
+ * this only reports what the text itself contains. */
+function findAllTagMatches(text) {
+  const globalRegex = new RegExp(tagRegex.source, "gi");
+  const matches = [];
+  let m;
+  while ((m = globalRegex.exec(text)) !== null) {
+    const name = TAG_NAMES.find((t) => t.toLowerCase() === m[2].toLowerCase());
+    if (name) matches.push({ name, magnitude: parseInt(m[1], 10) });
+  }
+  return matches;
+}
+
+/** Squared Euclidean distance between two [r,g,b] colors - squared (not
+ * an actual distance) since callers only ever compare against a fixed
+ * threshold, never need the real magnitude, and this avoids computing
+ * an unnecessary sqrt() for every pixel in a crop region. */
+function colorDistanceSq(a, b) {
+  const dr = a[0] - b[0], dg = a[1] - b[1], db = a[2] - b[2];
+  return dr * dr + dg * dg + db * db;
+}
+
+/** Samples points along a region's left and right edges (not every
+ * pixel - background should be reliably present somewhere along these
+ * edges regardless of image size, and this stays cheap even on an
+ * aggressively upscaled crop) to determine the background color
+ * reference for badge detection. Real tag badges don't span the full
+ * crop width (there's visible background margin on both sides in every
+ * real screenshot seen so far), so edge sampling is deliberately more
+ * robust than corner-only sampling - a badge that happens to touch one
+ * exact corner point can't corrupt the whole reference the way it
+ * could with only a handful of fixed sample points. Uses the median of
+ * each color channel across all samples (not the mean, which a
+ * minority of badge-colored samples could still skew) - simple and
+ * robust without needing a full histogram over every pixel. */
+function detectBackgroundColor(getPixel, width, height) {
+  const sampleCount = 20;
+  const samples = [];
+  for (let i = 0; i < sampleCount; i++) {
+    const y = Math.floor((i / (sampleCount - 1)) * (height - 1));
+    samples.push(getPixel(0, y));
+    samples.push(getPixel(width - 1, y));
+  }
+  const channel = (i) => {
+    const sorted = samples.map((s) => s[i]).sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)];
+  };
+  return [channel(0), channel(1), channel(2)];
+}
+
+/**
+ * Counts distinct badge-shaped color bands within a cropped tag region,
+ * independent of whether OCR could read any text inside them - a badge
+ * is a solid-colored pill against the app's own dark, fairly uniform
+ * background, so this classifies each horizontal row as "background" or
+ * "part of a badge" by color difference from a detected background
+ * reference, then counts contiguous runs of badge rows. This is the
+ * geometric ground truth for "how many tags should this rune have",
+ * genuinely independent of Tesseract's own text recognition - a rune
+ * with 3 visible badges but only 2 OCR-readable ones is unambiguously
+ * "2 resolved, 1 still needs review", and a rune with correctly zero
+ * badges is unambiguously "genuinely has no tags", rather than either
+ * case being indistinguishable from a plain OCR miss the way relying on
+ * text alone would leave it.
+ *
+ * `getPixel(x, y)` returns [r, g, b] for one pixel - kept as a plain
+ * accessor function rather than requiring a specific ImageData shape,
+ * so this same logic works against both a real browser canvas and
+ * synthetic test data.
+ *
+ * Returns an array of { top, bottom } row ranges (in the same
+ * coordinate space as the width/height passed in), one per detected
+ * badge, ordered top to bottom - not just a count, since these
+ * boundaries are also what a future per-badge crop-and-retry pass would
+ * need, the same way the existing tag-crop-then-retry logic already
+ * uses computed regions rather than just a yes/no signal.
+ */
+function countTagBadgeRows(getPixel, width, height) {
+  const background = detectBackgroundColor(getPixel, width, height);
+  const thresholdSq = CONFIG.BADGE_COLOR_THRESHOLD * CONFIG.BADGE_COLOR_THRESHOLD;
+
+  const rowIsBadge = [];
+  for (let y = 0; y < height; y++) {
+    let differing = 0;
+    // Sampling every 3rd column is enough to classify a row reliably
+    // and meaningfully cheaper than checking every single pixel,
+    // especially against an aggressively upscaled crop.
+    let sampled = 0;
+    for (let x = 0; x < width; x += 3) {
+      sampled++;
+      if (colorDistanceSq(getPixel(x, y), background) > thresholdSq) differing++;
+    }
+    rowIsBadge.push(sampled > 0 && differing / sampled >= CONFIG.BADGE_ROW_COVERAGE_THRESHOLD);
+  }
+
+  const badges = [];
+  let runStart = null;
+  for (let y = 0; y <= height; y++) {
+    const isBadge = y < height && rowIsBadge[y];
+    if (isBadge && runStart === null) {
+      runStart = y;
+    } else if (!isBadge && runStart !== null) {
+      badges.push({ top: runStart, bottom: y });
+      runStart = null;
+    }
+  }
+  return badges;
 }
 
 function levenshteinDistance(a, b) {
@@ -652,21 +878,29 @@ function suggestAffixGuess(scopeText, knownNames) {
 
 /** Shared between initial parsing and live UI corrections, so both
  * compute "what still needs review" identically. */
-function computeMissingParts(prefix, suffix, tagName, tagMagnitude) {
+/**
+ * `tags` is an array of { name, magnitude } objects (possibly empty).
+ * `expectedTagCount`, when known, is the geometric badge count from
+ * countTagBadgeRows against the real screenshot - genuinely independent
+ * of whether OCR could read any given badge's text. Left null/undefined
+ * when not yet known (specifically, clusterAndExtract's own first-pass
+ * call, before any real pixel analysis has happened) - Tag is
+ * correctly left unflagged in that case, since there's no reliable way
+ * yet to tell "this rune genuinely has zero tags" from "OCR just hasn't
+ * found any yet". Once expectedTagCount IS known (parseScreenshot's
+ * second pass, after running the real geometric count), Tag is flagged
+ * only if fewer tags were actually resolved than badges are genuinely
+ * visible - so 3 visible badges with 2 read is correctly "needs
+ * review", and 0 visible badges is correctly NOT flagged at all, no
+ * matter what the game's actual rule about a rune always carrying at
+ * least one tag turns out to be.
+ */
+function computeMissingParts(prefix, suffix, tags, expectedTagCount) {
   const missingParts = [];
   if (!prefix) missingParts.push("Fortune");
   if (!suffix) missingParts.push("Omen");
-  // A tag genuinely needs both pieces together - a name with no
-  // magnitude (or vice versa) is just as incomplete as having neither,
-  // since the in-game badge always shows them as one unit ("+1 Rest",
-  // never just "Rest" alone). tagMagnitude <= 0 is treated the same as
-  // missing entirely (not just == null) - no real rune ever has a "+0"
-  // tag, so 0 is never a genuinely resolved value regardless of how it
-  // ended up as the stored number; the input's min was changed from 1
-  // to 0 specifically so an accidental/default 0 reads as visibly
-  // wrong rather than looking like a real, chosen value, but this
-  // check is what actually keeps the row correctly flagged either way.
-  if (!tagName || tagMagnitude == null || tagMagnitude <= 0) missingParts.push("Tag");
+  const resolvedCount = (tags || []).filter((t) => t.magnitude > 0).length;
+  if (expectedTagCount != null && resolvedCount < expectedTagCount) missingParts.push("Tag");
   return missingParts;
 }
 
@@ -787,14 +1021,15 @@ function clusterAndExtract(lines, imgHeight, affixes) {
     const hasBleedSuffix = afterTypeSuffixNames.length > 1;
     const textuallyContaminated = blobHasTierMatch || hasBleedSuffix;
 
-    // The tag badge sits visually below the name, but the whole cluster
+    // The tag badges sit visually below the name, but the whole cluster
     // is searched (not just afterType) rather than assuming OCR line
-    // order always puts it strictly after the suffix - the "+N TagName"
-    // pattern is distinctive enough that searching the full blob doesn't
-    // risk a false match against unrelated text elsewhere in the entry.
-    const tagMatch = blob.match(tagRegex);
-    const tagName = tagMatch ? TAG_NAMES.find((t) => t.toLowerCase() === tagMatch[2].toLowerCase()) : null;
-    const tagMagnitude = tagMatch ? parseInt(tagMatch[1], 10) : null;
+    // order always puts them strictly after the suffix - the "+N
+    // TagName" pattern is distinctive enough that searching the full
+    // blob doesn't risk a false match against unrelated text elsewhere
+    // in the entry. A rune can carry multiple tags at once (confirmed
+    // via a real screenshot showing 2 and 3 on individual runes), so
+    // every match in the blob is kept, not just the first.
+    const tags = findAllTagMatches(blob);
 
     // Bounding box of "everything below the rune's own name" within this
     // cluster, in original screenshot pixel space - used by the second,
@@ -842,17 +1077,22 @@ function clusterAndExtract(lines, imgHeight, affixes) {
       tagCropTop = cluster[cluster.length - 1].y1;
     }
     tagCropTop -= typicalLineHeight * 0.3;
-    // The fallback path's band needs to be meaningfully taller than the
-    // normal, suffix-resolved case - confirmed via a real "show crop"
-    // preview where a wrapped two-line name's second line ("Exhaustion")
-    // was never detected by Tesseract's first pass at all (not a
-    // clustering bug - the cluster genuinely only had the first line).
-    // In that situation, the last-detected line is the FIRST name line,
-    // not the second - meaning an entire undetected line (the wrapped
-    // suffix itself) sits between where this band starts and where the
-    // actual tag badge is, on top of the tag area itself. The normal
-    // 2.2x band was sized assuming no such gap, so it fell short.
-    const bandHeight = typicalLineHeight * (usedFallbackTop ? 3.5 : 2.2);
+    // Deliberately generous now, in both the normal and fallback cases -
+    // a rune can carry several tags at once (confirmed via a real
+    // screenshot showing 2-3 stacked badges), each taking roughly its
+    // own line's worth of vertical space, so a band sized for "at most
+    // one tag" (the old 2.2x/3.5x here) genuinely wasn't tall enough -
+    // confirmed directly via a real "show rune" preview cutting off
+    // right after the first badge, before ever reaching the second or
+    // third. This region is ONLY used for the geometric badge-count
+    // phase (countTagBadgeRows) below, which just needs every real
+    // badge to fit somewhere inside it - overshooting into extra
+    // background/unrelated content underneath is harmless for pure
+    // color-band counting, unlike it would be for OCR text accuracy.
+    // The actual text-retry crop, sized precisely to the real detected
+    // badges rather than this generous guess, is computed separately
+    // once those badges are known (see parseScreenshot).
+    const bandHeight = typicalLineHeight * 7;
     const tagCropBottom = tagCropTop + bandHeight;
 
     const confidence = cluster.reduce((sum, l) => sum + l.confidence, 0) / cluster.length;
@@ -861,16 +1101,19 @@ function clusterAndExtract(lines, imgHeight, affixes) {
     // Tesseract's raw per-line confidence, which gets dragged down by
     // junk text (a tag chip, a coin value) that never mattered in the
     // first place and gets discarded regardless. Type is guaranteed
-    // present here (the entry wouldn't exist otherwise); prefix/suffix/
-    // tag are the ones that can genuinely come back unmatched.
-    const missingParts = computeMissingParts(prefix, suffix, tagName, tagMagnitude);
+    // present here (the entry wouldn't exist otherwise); prefix/suffix
+    // are the ones that can genuinely come back unmatched. Tag
+    // completeness is deliberately NOT judged yet at this stage (see
+    // computeMissingParts) - passing null here, not tags.length - since
+    // the real, geometric badge count isn't known until parseScreenshot's
+    // second pass runs against actual pixels.
+    const missingParts = computeMissingParts(prefix, suffix, tags, null);
 
     entries.push({
       type,
       prefix,
       suffix,
-      tagName,
-      tagMagnitude,
+      tags,
       tagCropTop,
       tagCropBottom,
       suggestedPrefix,
@@ -926,8 +1169,7 @@ function clusterAndExtract(lines, imgHeight, affixes) {
       tier,
       prefix: e.prefix,
       suffix: e.suffix,
-      tagName: e.tagName,
-      tagMagnitude: e.tagMagnitude,
+      tags: e.tags,
       // top: the entry's own genuine top boundary (covers the rune
       // name/icon, not just the tag-badge area tagCropTop starts at) -
       // exposed specifically for the "show crop" preview, which needs
@@ -978,12 +1220,16 @@ function flagDuplicates(rows) {
   const buckets = {};
   rows.forEach((r) => {
     // Same "exclude unresolved fields from matching" rationale as
-    // prefix/suffix - two rows both showing an unresolved tag could be
-    // genuinely different runes that each just failed to read, not
-    // actual duplicates, so they're excluded rather than risk a false
-    // positive.
-    if (!r.prefix || !r.suffix || !r.tagName || r.tagMagnitude == null) return;
-    const key = `${r.tier}|${r.type}|${r.prefix}|${r.suffix}|${r.tagName}|${r.tagMagnitude}`;
+    // before - two rows both still missing a tag could be genuinely
+    // different runes that each just failed to read, not actual
+    // duplicates, so they're excluded rather than risk a false
+    // positive. missingParts.includes("Tag") is the correct check now
+    // (not a plain array-length/null check) - it's already the
+    // definitive "tag resolution is incomplete" signal, correctly
+    // accounting for the real, geometric badge count once the second
+    // pass has run, rather than assuming any particular tag count.
+    if (!r.prefix || !r.suffix || r.missingParts.includes("Tag")) return;
+    const key = `${r.tier}|${r.type}|${r.prefix}|${r.suffix}|${tagsKeyPart(r.tags)}`;
     (buckets[key] = buckets[key] || []).push(r);
   });
 
@@ -1107,8 +1353,9 @@ function deckComposition(waystoneName, resolutions, deckCompositions) {
   const result = { ...baseline };
   Object.values(resolutions || {}).forEach((res) => {
     (res.allocations || []).forEach((a) => {
-      if (!a.tagName || a.tagMagnitude == null) return;
-      result[a.tagName] = (result[a.tagName] || 0) + a.tagMagnitude;
+      (a.tags || []).forEach((t) => {
+        result[t.name] = (result[t.name] || 0) + t.magnitude;
+      });
     });
   });
   return result;
@@ -1218,6 +1465,10 @@ export const PradoApp = {
   allBuildableOptions,
   requirementSignature,
   deckComposition,
+  countTagBadgeRows,
+  findAllTagMatches,
+  detectBackgroundColor,
+  colorDistanceSq,
   suggestAffixGuess,
   computeMissingParts,
   solveAllocation,

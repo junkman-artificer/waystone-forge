@@ -186,11 +186,8 @@
         </label>
         <label class="manual-add-field">
           <span class="affix-label">Tag</span>
-          <div class="tag-combo">
-            <span class="tag-plus">+</span>
-            <input type="number" id="manual-tag-magnitude" min="0" step="1" class="tag-magnitude-input" placeholder="?" />
-            <select id="manual-tag-name"></select>
-          </div>
+          <div class="tag-rows" id="manual-tag-rows"></div>
+          <button type="button" id="manual-add-tag" class="link-btn">+ add tag</button>
         </label>
       </div>
       <p id="manual-add-status" class="manual-add-status" aria-live="polite"></p>

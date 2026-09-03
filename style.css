@@ -473,6 +473,11 @@ input[type="file"]::file-selector-button {
   margin-top: 0.4rem;
   padding-left: 1.85rem;
   flex-wrap: wrap;
+  /* top-aligned rather than centered - the Tag field can now be much
+     taller than Fortune/Omen (a rune can carry several tags, each its
+     own row), and centering would leave Fortune/Omen's single line
+     sitting oddly mid-height against it. */
+  align-items: flex-start;
 }
 
 .affix-field {
@@ -527,6 +532,36 @@ input[type="file"]::file-selector-button {
 .tag-magnitude-input {
   width: 3.2rem;
   text-align: center;
+}
+
+/* Container for multiple .tag-combo rows (a rune can carry zero to
+   several tags at once) - each row gets its own bottom margin so
+   they read as a stacked list, not a single run-together block, with
+   the "remove" link-btn sitting right at the end of the row it
+   belongs to rather than looking like a separate action. */
+.tag-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.tag-rows .tag-combo {
+  justify-content: flex-start;
+}
+
+.tag-rows .tag-combo .link-btn {
+  margin-left: 0.15rem;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 0.3rem;
+}
+
+/* The "(2/3 found)" hint next to the Tag label - muted and small so it
+   reads as supplementary context, not a competing label of its own. */
+.tag-count-hint {
+  color: var(--text-muted);
+  font-weight: 400;
+  font-size: 0.78rem;
 }
 
 .subheading {
