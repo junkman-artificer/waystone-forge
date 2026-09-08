@@ -518,13 +518,18 @@ function rowHtml(row, fortuneNames, omenNames) {
                 (t, tagIdx) => `<div class="tag-combo">
                   <span class="tag-plus">+</span>
                   <input type="number" min="0" step="1" class="tag-magnitude-input" data-role="tagMagnitude" data-tag-index="${tagIdx}" value="${t.magnitude ?? ""}" placeholder="?" />
-                  <select data-role="tagName" data-tag-index="${tagIdx}">${affixOptions(TAG_NAMES, t.name, false)}</select>
+                  <select data-role="tagName" data-tag-index="${tagIdx}">${affixOptions(TAG_NAMES, t.name)}</select>
                   <button type="button" class="link-btn" data-role="remove-tag" data-tag-index="${tagIdx}" aria-label="Remove this tag">×</button>
                 </div>`
               )
               .join("")}
           </div>
           <button type="button" class="link-btn" data-role="add-tag">+ add tag</button>
+          ${
+            row.expectedTagCount != null && row.missingParts.includes("Tag") && !row.tags.some((t) => !t.name || t.magnitude == null || t.magnitude <= 0)
+              ? `<button type="button" class="link-btn" data-role="confirm-tags-complete">no more tags</button>`
+              : ""
+          }
           <button type="button" class="link-btn" data-role="show-crop" data-id="${row.id}">show rune</button>
         </label>
       </div>
@@ -614,14 +619,14 @@ function renderPendingRows() {
     rowEl.querySelector('[data-role="prefix"]').addEventListener("change", (e) => {
       row.prefix = e.target.value || null;
       row.suggestedPrefix = null; // the field's been resolved (or explicitly cleared) either way - stop suggesting
-      row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount);
+      row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount, row.tagsConfirmedComplete);
       row.needsReview = row.missingParts.length > 0;
       refreshDuplicateFlags();
     });
     rowEl.querySelector('[data-role="suffix"]').addEventListener("change", (e) => {
       row.suffix = e.target.value || null;
       row.suggestedSuffix = null;
-      row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount);
+      row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount, row.tagsConfirmedComplete);
       row.needsReview = row.missingParts.length > 0;
       refreshDuplicateFlags();
     });
@@ -642,7 +647,7 @@ function renderPendingRows() {
         const idx = parseInt(e.target.dataset.tagIndex, 10);
         if (!row.tags[idx]) return;
         row.tags[idx].name = e.target.value || null;
-        row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount);
+        row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount, row.tagsConfirmedComplete);
         row.needsReview = row.missingParts.length > 0;
         refreshDuplicateFlags();
       });
@@ -652,7 +657,7 @@ function renderPendingRows() {
         const idx = parseInt(e.target.dataset.tagIndex, 10);
         if (!row.tags[idx]) return;
         row.tags[idx].magnitude = parseInt(e.target.value, 10) || 0;
-        row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount);
+        row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount, row.tagsConfirmedComplete);
         row.needsReview = row.missingParts.length > 0;
         refreshDuplicateFlags();
       });
@@ -661,7 +666,7 @@ function renderPendingRows() {
       btn.addEventListener("click", () => {
         const idx = parseInt(btn.dataset.tagIndex, 10);
         row.tags.splice(idx, 1);
-        row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount);
+        row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount, row.tagsConfirmedComplete);
         row.needsReview = row.missingParts.length > 0;
         refreshDuplicateFlags();
       });
@@ -673,7 +678,26 @@ function renderPendingRows() {
         // magnitude from the newly-rendered row, same starting state as
         // any OCR-unresolved tag would have.
         row.tags.push({ name: null, magnitude: null });
-        row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount);
+        row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount, row.tagsConfirmedComplete);
+        row.needsReview = row.missingParts.length > 0;
+        refreshDuplicateFlags();
+      });
+    }
+    const confirmTagsCompleteBtn = rowEl.querySelector('[data-role="confirm-tags-complete"]');
+    if (confirmTagsCompleteBtn) {
+      confirmTagsCompleteBtn.addEventListener("click", () => {
+        // A direct, human confirmation that this row's tag list is
+        // genuinely complete - overrides the automated, geometric badge
+        // count specifically (never the "every listed tag is itself
+        // fully specified" check, which computeMissingParts still
+        // always applies regardless of this flag). The only way to
+        // set this, since there's otherwise no way for a person to
+        // tell the app "no, this rune genuinely doesn't have more
+        // tags than what's already listed" when the heuristic count
+        // disagrees - the same reasoning that motivated "show rune" in
+        // the first place, just for this specific field.
+        row.tagsConfirmedComplete = true;
+        row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount, row.tagsConfirmedComplete);
         row.needsReview = row.missingParts.length > 0;
         refreshDuplicateFlags();
       });
@@ -692,7 +716,7 @@ function renderPendingRows() {
       // needs its own suggestion shown.
       if (field === "prefix") row.suggestedPrefix = null;
       else row.suggestedSuffix = null;
-      row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount);
+      row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount, row.tagsConfirmedComplete);
       row.needsReview = row.missingParts.length > 0;
       refreshDuplicateFlags();
     });
@@ -2057,7 +2081,7 @@ function renderManualTagRows() {
       (t, idx) => `<div class="tag-combo">
         <span class="tag-plus">+</span>
         <input type="number" min="0" step="1" class="tag-magnitude-input" data-tag-index="${idx}" value="${t.magnitude ?? ""}" placeholder="?" />
-        <select data-tag-index="${idx}">${affixOptions(TAG_NAMES, t.name, false)}</select>
+        <select data-tag-index="${idx}">${affixOptions(TAG_NAMES, t.name)}</select>
         <button type="button" class="link-btn" data-tag-index="${idx}" aria-label="Remove this tag">×</button>
       </div>`
     )

@@ -555,7 +555,7 @@ async function parseScreenshot(imgEl, onProgress, affixes) {
     // than being positioned using badges that aren't being counted.
     const badges = countTagBadgeRows(getPixel, geomCanvas.width, scanHeight).slice(0, CONFIG.MAX_TAGS_PER_RUNE);
     row.expectedTagCount = badges.length;
-    row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount);
+    row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount, row.tagsConfirmedComplete);
     row.needsReview = row.missingParts.length > 0;
     // A precise crop for the text-retry pass below, bounded by the
     // REAL detected badges' own edges (converted back from this scaled,
@@ -694,7 +694,7 @@ async function parseScreenshot(imgEl, onProgress, affixes) {
       (m) => !row.tags.some((existing) => existing.name === m.name && existing.magnitude === m.magnitude)
     );
     row.tags = [...row.tags, ...newMatches];
-    row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount);
+    row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount, row.tagsConfirmedComplete);
     row.needsReview = row.missingParts.length > 0;
     tagRetryDebug.push({
       rowLabel,
@@ -985,12 +985,42 @@ function suggestAffixGuess(scopeText, knownNames) {
  * matter what the game's actual rule about a rune always carrying at
  * least one tag turns out to be.
  */
-function computeMissingParts(prefix, suffix, tags, expectedTagCount) {
+/**
+ * `tags` is an array of { name, magnitude } objects (possibly empty).
+ * `expectedTagCount`, when known, is the geometric badge count from
+ * countTagBadgeRows against the real screenshot - genuinely independent
+ * of whether OCR could read any given badge's text. Left null/undefined
+ * when not yet known (specifically, clusterAndExtract's own first-pass
+ * call, before any real pixel analysis has happened) - Tag is
+ * correctly left unflagged in that case, since there's no reliable way
+ * yet to tell "this rune genuinely has zero tags" from "OCR just hasn't
+ * found any yet". Once expectedTagCount IS known (parseScreenshot's
+ * second pass, after running the real geometric count), Tag is flagged
+ * if either of two independent things is true: (a) any individual tag
+ * row is itself incomplete (a name with no magnitude, or vice versa,
+ * or a non-positive magnitude) - checked regardless of the count below,
+ * since a freshly-added, still-unspecified tag row must stay flagged
+ * even when the count alone would already look satisfied without it;
+ * or (b) fewer tags were actually resolved than the geometric count
+ * says should exist. `tagsConfirmedComplete`, when true, suppresses
+ * check (b) specifically - a direct, human confirmation that this
+ * row's tag list is genuinely complete overrides the automated,
+ * heuristic badge count, the same way the "show rune" preview already
+ * lets a person's own reading override OCR's text reading elsewhere.
+ * It does NOT suppress check (a): confirming "no more tags need
+ * adding" is a different claim than "every tag already listed is
+ * itself fully specified", and an incomplete row is still genuinely
+ * incomplete regardless of that confirmation.
+ */
+function computeMissingParts(prefix, suffix, tags, expectedTagCount, tagsConfirmedComplete) {
   const missingParts = [];
   if (!prefix) missingParts.push("Fortune");
   if (!suffix) missingParts.push("Omen");
-  const resolvedCount = (tags || []).filter((t) => t.magnitude > 0).length;
-  if (expectedTagCount != null && resolvedCount < expectedTagCount) missingParts.push("Tag");
+  const list = tags || [];
+  const hasIncompleteRow = list.some((t) => !t.name || t.magnitude == null || t.magnitude <= 0);
+  const resolvedCount = list.filter((t) => t.magnitude > 0).length;
+  const countIsShort = !tagsConfirmedComplete && expectedTagCount != null && resolvedCount < expectedTagCount;
+  if (hasIncompleteRow || countIsShort) missingParts.push("Tag");
   return missingParts;
 }
 
