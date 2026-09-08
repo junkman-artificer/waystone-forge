@@ -446,6 +446,73 @@ function updateRowNeedsReviewUI(rowEl, row) {
   }
 }
 
+/** Generates and displays the actual crop-preview canvas into `preview`
+ * for a given row - extracted from the "show rune" click handler so it
+ * can also be called automatically after a re-render, for any row
+ * whose preview should stay open (see row.showCropPreview) rather than
+ * requiring a fresh click every time. Pure display logic only - the
+ * caller decides whether/when this should run. */
+async function renderTagCropPreview(preview, row) {
+  if (row.top == null || row.tagCropBottom == null || !row.sourceImageUrl) {
+    preview.textContent = "No source image available for this row.";
+    return;
+  }
+
+  preview.textContent = "Loading…";
+
+  try {
+    const img = new Image();
+    img.src = row.sourceImageUrl;
+    await img.decode();
+
+    const naturalWidth = img.naturalWidth;
+    // Starts at the entry's own top (the rune name/icon), not just
+    // tagCropTop (which only covers the tag badge area) - the user
+    // asked to see the name and tag together for real context on
+    // which rune this actually is, not the tag in isolation.
+    const cropTop = Math.max(0, row.top);
+    // Prefers the precise, real-badge-boundary-derived region when
+    // available (a tighter, more accurate crop than the generous,
+    // geometry-detection-only region tagCropBottom now represents)
+    // - same reasoning and fallback order as the text-retry pass.
+    const cropBottom = Math.min(img.naturalHeight, row.preciseTagCropBottom ?? row.tagCropBottom);
+    const cropHeight = cropBottom - cropTop;
+    if (cropHeight <= 0) {
+      preview.textContent = "Couldn't determine a valid crop region for this row.";
+      return;
+    }
+
+    // Moderate zoom (3x) is plenty for human legibility - unlike
+    // the OCR retry pass, this doesn't need Tesseract's aggressive
+    // 8x, and deliberately skips the grayscale conversion used
+    // there too, since a person benefits from seeing the real
+    // badge color, not the version optimized for Tesseract.
+    //
+    // The canvas itself is still rendered at full 3x resolution
+    // (so the underlying image stays crisp), but its CSS width is
+    // separately capped to the preview container in style.css
+    // (max-width: 100%, height: auto) - previously it displayed at
+    // its full, un-scaled pixel width, which on a typical
+    // screenshot was far wider than the row itself, forcing
+    // horizontal scrolling to see anything. Capping the display
+    // size rather than lowering the zoom factor keeps the text
+    // legible while fitting the row without scrolling.
+    const zoom = 3;
+    const canvas = document.createElement("canvas");
+    canvas.width = naturalWidth * zoom;
+    canvas.height = cropHeight * zoom;
+    const ctx = canvas.getContext("2d");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(img, 0, cropTop, naturalWidth, cropHeight, 0, 0, canvas.width, canvas.height);
+
+    preview.innerHTML = "";
+    preview.appendChild(canvas);
+  } catch (err) {
+    preview.textContent = `Couldn't load the source image: ${err.message || err}`;
+  }
+}
+
 function rowNoteHtml(row) {
   const parts = [];
   // Only worth showing when the current pending batch actually spans
@@ -533,11 +600,22 @@ function rowHtml(row, fortuneNames, omenNames) {
           <button type="button" class="link-btn" data-role="show-crop" data-id="${row.id}">show rune</button>
         </label>
       </div>
-      <div class="tag-crop-preview hidden" data-role="tag-crop-preview"></div>
+      <div class="tag-crop-preview ${row.showCropPreview ? "" : "hidden"}" data-role="tag-crop-preview"></div>
     </div>`;
 }
 
 function renderPendingRows() {
+  // A preview the user asked to keep open automatically collapses once
+  // this row is genuinely resolved (no more missing fields) - reset
+  // here, before any HTML gets built, so the template below already
+  // reflects it correctly rather than needing a second pass. Left
+  // alone (stays open) for any row still genuinely needing review, even
+  // across the wholesale re-render every tag edit triggers - see
+  // renderTagCropPreview and the show-crop click handler.
+  state.pendingRows.forEach((row) => {
+    if (row.showCropPreview && !row.needsReview) row.showCropPreview = false;
+  });
+
   // Contaminated rows (tier-label overlap) are already excluded from
   // being confirmed into inventory (included: false, set at extraction
   // time regardless of this toggle) - this only controls whether the
@@ -605,6 +683,15 @@ function renderPendingRows() {
   els.pendingRows.querySelectorAll(".pending-row").forEach((rowEl) => {
     const id = rowEl.dataset.id;
     const row = state.pendingRows.find((r) => r.id === id);
+    // The preview container itself renders visible (not "hidden") from
+    // the template when row.showCropPreview is true, but its actual
+    // canvas content is real DOM that a full re-render just wiped out -
+    // regenerate it right away rather than leaving an empty box sitting
+    // open until the next click.
+    if (row.showCropPreview) {
+      const preview = rowEl.querySelector('[data-role="tag-crop-preview"]');
+      if (preview) renderTagCropPreview(preview, row);
+    }
     rowEl.querySelector('[data-role="include"]').addEventListener("change", (e) => {
       row.included = e.target.checked;
     });
@@ -730,76 +817,21 @@ function renderPendingRows() {
       const preview = rowEl?.querySelector('[data-role="tag-crop-preview"]');
       if (!row || !preview) return;
 
-      // Toggle: a second click on an already-open preview just closes
-      // it again, rather than redundantly re-rendering - the crop
-      // region never changes after the initial OCR pass, so there's
-      // nothing to refresh.
-      if (!preview.classList.contains("hidden")) {
+      // Persisted on the row itself (not just toggled as transient DOM
+      // state) so the preview can survive a full re-render - every tag
+      // edit re-renders the whole row from scratch, which would
+      // otherwise reset a plain "hidden" class back to its default
+      // every single time, forcing a fresh click after every edit.
+      row.showCropPreview = !row.showCropPreview;
+
+      if (!row.showCropPreview) {
         preview.classList.add("hidden");
         preview.innerHTML = "";
         return;
       }
 
-      if (row.top == null || row.tagCropBottom == null || !row.sourceImageUrl) {
-        preview.textContent = "No source image available for this row.";
-        preview.classList.remove("hidden");
-        return;
-      }
-
-      preview.textContent = "Loading…";
       preview.classList.remove("hidden");
-
-      try {
-        const img = new Image();
-        img.src = row.sourceImageUrl;
-        await img.decode();
-
-        const naturalWidth = img.naturalWidth;
-        // Starts at the entry's own top (the rune name/icon), not just
-        // tagCropTop (which only covers the tag badge area) - the user
-        // asked to see the name and tag together for real context on
-        // which rune this actually is, not the tag in isolation.
-        const cropTop = Math.max(0, row.top);
-        // Prefers the precise, real-badge-boundary-derived region when
-        // available (a tighter, more accurate crop than the generous,
-        // geometry-detection-only region tagCropBottom now represents)
-        // - same reasoning and fallback order as the text-retry pass.
-        const cropBottom = Math.min(img.naturalHeight, row.preciseTagCropBottom ?? row.tagCropBottom);
-        const cropHeight = cropBottom - cropTop;
-        if (cropHeight <= 0) {
-          preview.textContent = "Couldn't determine a valid crop region for this row.";
-          return;
-        }
-
-        // Moderate zoom (3x) is plenty for human legibility - unlike
-        // the OCR retry pass, this doesn't need Tesseract's aggressive
-        // 8x, and deliberately skips the grayscale conversion used
-        // there too, since a person benefits from seeing the real
-        // badge color, not the version optimized for Tesseract.
-        //
-        // The canvas itself is still rendered at full 3x resolution
-        // (so the underlying image stays crisp), but its CSS width is
-        // separately capped to the preview container in style.css
-        // (max-width: 100%, height: auto) - previously it displayed at
-        // its full, un-scaled pixel width, which on a typical
-        // screenshot was far wider than the row itself, forcing
-        // horizontal scrolling to see anything. Capping the display
-        // size rather than lowering the zoom factor keeps the text
-        // legible while fitting the row without scrolling.
-        const zoom = 3;
-        const canvas = document.createElement("canvas");
-        canvas.width = naturalWidth * zoom;
-        canvas.height = cropHeight * zoom;
-        const ctx = canvas.getContext("2d");
-        ctx.imageSmoothingEnabled = true;
-        ctx.imageSmoothingQuality = "high";
-        ctx.drawImage(img, 0, cropTop, naturalWidth, cropHeight, 0, 0, canvas.width, canvas.height);
-
-        preview.innerHTML = "";
-        preview.appendChild(canvas);
-      } catch (err) {
-        preview.textContent = `Couldn't load the source image: ${err.message || err}`;
-      }
+      await renderTagCropPreview(preview, row);
     });
   });
 }
