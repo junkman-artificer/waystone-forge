@@ -118,6 +118,20 @@ const CONFIG = {
   // a full width's worth of the outline (within the icon's own x-range)
   // should clear this comfortably; scattered bright noise shouldn't.
   ICON_FRAME_ROW_COVERAGE_THRESHOLD: 0.5,
+  // The inventory panel's own bottom border spans nearly the entire
+  // width, unlike the icon frame's narrow left strip - stops short of
+  // the very edges (10%-90%) since the border's corners are visibly
+  // darker/rounded in a real screenshot and could otherwise dilute a
+  // row's average brightness below detection right at the true edges.
+  WINDOW_BORDER_X_START_FRACTION: 0.1,
+  WINDOW_BORDER_X_END_FRACTION: 0.9,
+  // Same brightness concept as the icon frame's own threshold - kept as
+  // a distinct constant (not reusing ICON_FRAME_BRIGHTNESS_THRESHOLD)
+  // since these are visually similar but not guaranteed to be the exact
+  // same shade in a real screenshot, and tuning one shouldn't silently
+  // move the other.
+  WINDOW_BORDER_BRIGHTNESS_THRESHOLD: 195,
+  WINDOW_BORDER_ROW_COVERAGE_THRESHOLD: 0.5,
   // Safety cap on how many allocation attempts the recipe solver will try
   // before giving up, so a huge multi-waystone query can't hang the tab.
   SOLVER_NODE_LIMIT: 200000,
@@ -542,7 +556,17 @@ async function parseScreenshot(imgEl, onProgress, affixes) {
     // effective scan height (not the canvas itself) rather than
     // requiring a second, separate crop/redraw.
     const nextIconY = findNextRuneIconTop(getPixel, geomCanvas.width, geomCanvas.height, typicalLineHeight * geomScale * 0.5);
-    const scanHeight = nextIconY != null ? nextIconY : geomCanvas.height;
+    // A third, independent ceiling specifically for the LAST rune in a
+    // screenshot - it has no next rune of any kind to bound against
+    // (nextIconY and the next-cluster ceiling above are both naturally
+    // null/absent for it), so without this, its own crop had nothing
+    // stopping it from reaching however far the generous 7x band
+    // allowed, right off the bottom of the actual rune list. The
+    // inventory panel's own bottom border marks the true, fixed end of
+    // that list regardless of scroll position.
+    const windowBorderY = findWindowBottomBorder(getPixel, geomCanvas.width, geomCanvas.height, typicalLineHeight * geomScale * 0.5);
+    const ceilings = [nextIconY, windowBorderY, geomCanvas.height].filter((v) => v != null);
+    const scanHeight = Math.min(...ceilings);
     // Truncated (not just count-capped) to the first
     // CONFIG.MAX_TAGS_PER_RUNE detected badges, top to bottom - the
     // topmost ones are the most likely to genuinely belong to this
@@ -889,21 +913,76 @@ function countTagBadgeRows(getPixel, width, height) {
  * the same reason - testable against synthetic data, not tied to a
  * specific ImageData shape.
  */
-function findNextRuneIconTop(getPixel, width, height, searchFromY) {
-  const xEnd = Math.floor(width * CONFIG.ICON_FRAME_X_FRACTION);
+/** Shared core for both findNextRuneIconTop and findWindowBottomBorder -
+ * scans rows from `searchFromY` downward for one where a sufficient
+ * fraction of pixels within [xStartFraction, xEndFraction] of width
+ * clear `brightnessThreshold` on all three channels, returning the
+ * first qualifying row's y-coordinate, or null if none is found before
+ * `height`. Both the rune-icon frame and the inventory window's own
+ * bottom border are the same kind of visual signal at heart - a thin,
+ * near-white outline against a darker interior - just spanning
+ * different portions of the image width (the icon frame narrow and
+ * left-aligned, the window border wide, close to the full width) -
+ * genuinely the same underlying detection, not two unrelated things
+ * that happen to share code. */
+function findBrightHorizontalBand(getPixel, width, height, searchFromY, xStartFraction, xEndFraction, brightnessThreshold, coverageThreshold) {
+  const xStart = Math.floor(width * xStartFraction);
+  const xEnd = Math.floor(width * xEndFraction);
   for (let y = Math.max(0, Math.floor(searchFromY)); y < height; y++) {
     let bright = 0;
     let sampled = 0;
-    for (let x = 0; x < xEnd; x += 2) {
+    for (let x = xStart; x < xEnd; x += 2) {
       sampled++;
       const [r, g, b] = getPixel(x, y);
-      if (r >= CONFIG.ICON_FRAME_BRIGHTNESS_THRESHOLD && g >= CONFIG.ICON_FRAME_BRIGHTNESS_THRESHOLD && b >= CONFIG.ICON_FRAME_BRIGHTNESS_THRESHOLD) {
+      if (r >= brightnessThreshold && g >= brightnessThreshold && b >= brightnessThreshold) {
         bright++;
       }
     }
-    if (sampled > 0 && bright / sampled >= CONFIG.ICON_FRAME_ROW_COVERAGE_THRESHOLD) return y;
+    if (sampled > 0 && bright / sampled >= coverageThreshold) return y;
   }
   return null;
+}
+
+/**
+ * Finds the top of the next rune icon's own frame within a region -
+ * genuinely independent of OCR text (see ICON_FRAME_X_FRACTION's own
+ * comment for why that matters), scanning for the frame's thin,
+ * near-white outline rather than anything color-based. Searches from
+ * `searchFromY` downward (skip the current rune's own icon at the top
+ * of the region, which would otherwise immediately, incorrectly match
+ * itself) and returns the y-coordinate of the first qualifying row, or
+ * null if nothing is found before `height`. `getPixel`/`width`/`height`
+ * follow the same plain-accessor convention as countTagBadgeRows, for
+ * the same reason - testable against synthetic data, not tied to a
+ * specific ImageData shape.
+ */
+function findNextRuneIconTop(getPixel, width, height, searchFromY) {
+  return findBrightHorizontalBand(
+    getPixel, width, height, searchFromY,
+    0, CONFIG.ICON_FRAME_X_FRACTION,
+    CONFIG.ICON_FRAME_BRIGHTNESS_THRESHOLD, CONFIG.ICON_FRAME_ROW_COVERAGE_THRESHOLD
+  );
+}
+
+/**
+ * Finds the inventory list panel's own bottom border - a third,
+ * independent ceiling alongside the next-cluster and next-icon checks,
+ * specifically for the LAST rune in a screenshot, which has no next
+ * rune of either kind to bound against. Scans a wide x-range (close to
+ * the full width, not just the icon frame's narrow left strip - this
+ * border spans nearly the entire panel) for the same kind of near-
+ * white outline the icon frame itself uses, just wider. The x-range
+ * deliberately stops short of the very edges (not the full 0-100%) to
+ * avoid the border's own slightly darker, rounded corners potentially
+ * falling under the brightness threshold and diluting the row's
+ * average below detection.
+ */
+function findWindowBottomBorder(getPixel, width, height, searchFromY) {
+  return findBrightHorizontalBand(
+    getPixel, width, height, searchFromY,
+    CONFIG.WINDOW_BORDER_X_START_FRACTION, CONFIG.WINDOW_BORDER_X_END_FRACTION,
+    CONFIG.WINDOW_BORDER_BRIGHTNESS_THRESHOLD, CONFIG.WINDOW_BORDER_ROW_COVERAGE_THRESHOLD
+  );
 }
 
 function levenshteinDistance(a, b) {
@@ -1612,6 +1691,7 @@ export const PradoApp = {
   deckComposition,
   countTagBadgeRows,
   findNextRuneIconTop,
+  findWindowBottomBorder,
   computeTypicalLineHeight,
   findAllTagMatches,
   detectBackgroundColor,
