@@ -475,6 +475,11 @@ async function parseScreenshot(imgEl, onProgress, affixes) {
   // badge colors intact, not Tesseract, so neither of those two
   // OCR-specific preprocessing steps apply or would help here.
   const badgeCountDebug = [];
+  // Computed once here, outside the loop below - it's the same value
+  // for every row in this screenshot (it only depends on the full
+  // lines array, not on any one row), so there's no reason to
+  // recompute it on every iteration.
+  const typicalLineHeight = computeTypicalLineHeight(lines);
   rows.forEach((row) => {
     if (row.tagCropTop == null || row.tagCropBottom == null) return;
     const cropTop = Math.max(0, row.tagCropTop);
@@ -913,15 +918,23 @@ function computeMissingParts(prefix, suffix, tags, expectedTagCount) {
  * parseScreenshot for the two-phase design (cluster by geometry, then
  * extract fields by content).
  */
+/** Median of a set of OCR lines' own heights (with a fallback for an
+ * empty/degenerate set) - used as a stand-in unit for "one text line's
+ * worth of vertical space" throughout crop-region and clustering
+ * geometry. Extracted as its own function specifically so both
+ * clusterAndExtract and parseScreenshot can compute the same estimate
+ * independently - they're separate top-level functions, so a value
+ * computed inline in one is never actually in scope in the other. */
+function computeTypicalLineHeight(lines) {
+  const lineHeights = lines.map((l) => l.y1 - l.y0).sort((a, b) => a - b);
+  return lineHeights.length > 0 ? lineHeights[Math.floor(lineHeights.length / 2)] : CONFIG.FALLBACK_LINE_HEIGHT;
+}
+
 function clusterAndExtract(lines, imgHeight, affixes) {
   if (lines.length === 0) return [];
 
   // --- Phase 1: cluster lines into entries by vertical gap --------------
-  const lineHeights = lines.map((l) => l.y1 - l.y0).sort((a, b) => a - b);
-  const typicalLineHeight =
-    lineHeights.length > 0
-      ? lineHeights[Math.floor(lineHeights.length / 2)]
-      : CONFIG.FALLBACK_LINE_HEIGHT;
+  const typicalLineHeight = computeTypicalLineHeight(lines);
   const clusterGapThreshold = typicalLineHeight * CONFIG.CLUSTER_GAP_RATIO;
 
   const clusters = [[lines[0]]];
@@ -1466,6 +1479,7 @@ export const PradoApp = {
   requirementSignature,
   deckComposition,
   countTagBadgeRows,
+  computeTypicalLineHeight,
   findAllTagMatches,
   detectBackgroundColor,
   colorDistanceSq,
