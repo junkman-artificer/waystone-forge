@@ -86,6 +86,38 @@ const CONFIG = {
   // pixel or two shouldn't flip a row, but a badge's own solid fill
   // should comfortably clear this.
   BADGE_ROW_COVERAGE_THRESHOLD: 0.3,
+  // Hard ceiling on how many tags a single rune is ever treated as
+  // having, regardless of how many colored badge regions get detected -
+  // a defense-in-depth safety net on top of the crop-region ceiling
+  // (which stops the detection region from reaching into an adjacent
+  // rune's own content in the first place), for any other, unforeseen
+  // cause of an inflated count - visual noise, a future game update,
+  // etc. Set from the user's own direct in-game observation (never
+  // seen more than 4), with one tag of headroom above that.
+  MAX_TAGS_PER_RUNE: 5,
+  // The rune-icon thumbnail's own frame (a muted grey box with a thin,
+  // near-white outline) sits consistently in the same left portion of
+  // every rune entry, regardless of screenshot resolution - used as an
+  // independent, OCR-text-free signal for "a new rune's entry starts
+  // here", genuinely different in kind from the crop-region ceiling
+  // based on the next OCR text cluster (which depends on Tesseract
+  // having read that next rune's name cleanly enough to trigger its
+  // own entry boundary - not guaranteed, and the likely reason a crop
+  // still reached into a neighboring rune in a real, reported case
+  // despite that first ceiling already being in place). Both this and
+  // the near-white brightness threshold below are proportional/relative
+  // rather than fixed pixel values, so they hold regardless of
+  // screenshot size.
+  ICON_FRAME_X_FRACTION: 0.25,
+  // How bright (0-255, all channels) a pixel has to be to count as part
+  // of the icon frame's near-white outline - well above both the dark
+  // app background and any colored tag badge's own, more muted fill,
+  // so this shouldn't false-positive against either of those.
+  ICON_FRAME_BRIGHTNESS_THRESHOLD: 195,
+  // Same row-coverage-fraction concept as BADGE_ROW_COVERAGE_THRESHOLD -
+  // a full width's worth of the outline (within the icon's own x-range)
+  // should clear this comfortably; scattered bright noise shouldn't.
+  ICON_FRAME_ROW_COVERAGE_THRESHOLD: 0.5,
   // Safety cap on how many allocation attempts the recipe solver will try
   // before giving up, so a huge multi-waystone query can't hang the tab.
   SOLVER_NODE_LIMIT: 200000,
@@ -498,7 +530,30 @@ async function parseScreenshot(imgEl, onProgress, affixes) {
       const i = (y * geomCanvas.width + x) * 4;
       return [imageData.data[i], imageData.data[i + 1], imageData.data[i + 2]];
     };
-    const badges = countTagBadgeRows(getPixel, geomCanvas.width, geomCanvas.height);
+    // Independent, OCR-text-free ceiling: the current rune's own icon
+    // shouldn't appear within this crop at all (tagCropTop already
+    // starts below both the icon and the name), so this searches from
+    // near the very top of the region rather than needing to skip
+    // anything first. Confirmed via a real, reported case that the
+    // OCR-text-cluster-based ceiling above wasn't always enough on its
+    // own (the crop still reached a neighboring rune's own content) -
+    // this catches that independently, since it never depends on
+    // Tesseract having read the next rune's name at all. Shrinks the
+    // effective scan height (not the canvas itself) rather than
+    // requiring a second, separate crop/redraw.
+    const nextIconY = findNextRuneIconTop(getPixel, geomCanvas.width, geomCanvas.height, typicalLineHeight * geomScale * 0.5);
+    const scanHeight = nextIconY != null ? nextIconY : geomCanvas.height;
+    // Truncated (not just count-capped) to the first
+    // CONFIG.MAX_TAGS_PER_RUNE detected badges, top to bottom - the
+    // topmost ones are the most likely to genuinely belong to this
+    // rune, given the crop's own top boundary is anchored to this
+    // rune's actual name; anything detected beyond the cap is more
+    // likely spurious (noise, or content further down) than a real
+    // tag this rune actually has. Truncating the array itself, not
+    // just capping the reported count, keeps the precise-crop boundary
+    // computed below consistent with whatever gets reported, rather
+    // than being positioned using badges that aren't being counted.
+    const badges = countTagBadgeRows(getPixel, geomCanvas.width, scanHeight).slice(0, CONFIG.MAX_TAGS_PER_RUNE);
     row.expectedTagCount = badges.length;
     row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount);
     row.needsReview = row.missingParts.length > 0;
@@ -821,6 +876,36 @@ function countTagBadgeRows(getPixel, width, height) {
   return badges;
 }
 
+/**
+ * Finds the top of the next rune icon's own frame within a region -
+ * genuinely independent of OCR text (see ICON_FRAME_X_FRACTION's own
+ * comment for why that matters), scanning for the frame's thin,
+ * near-white outline rather than anything color-based. Searches from
+ * `searchFromY` downward (skip the current rune's own icon at the top
+ * of the region, which would otherwise immediately, incorrectly match
+ * itself) and returns the y-coordinate of the first qualifying row, or
+ * null if nothing is found before `height`. `getPixel`/`width`/`height`
+ * follow the same plain-accessor convention as countTagBadgeRows, for
+ * the same reason - testable against synthetic data, not tied to a
+ * specific ImageData shape.
+ */
+function findNextRuneIconTop(getPixel, width, height, searchFromY) {
+  const xEnd = Math.floor(width * CONFIG.ICON_FRAME_X_FRACTION);
+  for (let y = Math.max(0, Math.floor(searchFromY)); y < height; y++) {
+    let bright = 0;
+    let sampled = 0;
+    for (let x = 0; x < xEnd; x += 2) {
+      sampled++;
+      const [r, g, b] = getPixel(x, y);
+      if (r >= CONFIG.ICON_FRAME_BRIGHTNESS_THRESHOLD && g >= CONFIG.ICON_FRAME_BRIGHTNESS_THRESHOLD && b >= CONFIG.ICON_FRAME_BRIGHTNESS_THRESHOLD) {
+        bright++;
+      }
+    }
+    if (sampled > 0 && bright / sampled >= CONFIG.ICON_FRAME_ROW_COVERAGE_THRESHOLD) return y;
+  }
+  return null;
+}
+
 function levenshteinDistance(a, b) {
   const m = a.length, n = b.length;
   const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
@@ -981,7 +1066,7 @@ function clusterAndExtract(lines, imgHeight, affixes) {
   const tierHeaders = []; // { tier, top, bottom }
   const entries = [];
 
-  clusters.forEach((cluster) => {
+  clusters.forEach((cluster, clusterIdx) => {
     const blob = cluster
       .map((l) => l.text)
       .join(" ")
@@ -1106,7 +1191,24 @@ function clusterAndExtract(lines, imgHeight, affixes) {
     // badges rather than this generous guess, is computed separately
     // once those badges are known (see parseScreenshot).
     const bandHeight = typicalLineHeight * 7;
-    const tagCropBottom = tagCropTop + bandHeight;
+    let tagCropBottom = tagCropTop + bandHeight;
+    // Hard ceiling: never let this region extend into the NEXT cluster
+    // (the next rune's own entry) - confirmed via a real screenshot
+    // where the "generous" band above genuinely reached far enough
+    // down to swallow an entirely separate, unrelated rune's own real
+    // tag badges (turning "this rune has 1 tag" into a wildly inflated
+    // count from a second rune's badges being counted as if they
+    // belonged to the first). "Overshooting is harmless" was only ever
+    // true for overshooting into plain background - reaching another
+    // rune's own real content is a different, genuinely harmful case
+    // this didn't originally account for. Falls back to the generous
+    // band unchanged for the last cluster in the screenshot, which has
+    // no next cluster to bound against.
+    const nextCluster = clusters[clusterIdx + 1];
+    if (nextCluster) {
+      const nextClusterTop = nextCluster[0].y0 - typicalLineHeight * 0.3;
+      tagCropBottom = Math.min(tagCropBottom, nextClusterTop);
+    }
 
     const confidence = cluster.reduce((sum, l) => sum + l.confidence, 0) / cluster.length;
     // What actually needs a human's attention now is whether the fields
@@ -1479,6 +1581,7 @@ export const PradoApp = {
   requirementSignature,
   deckComposition,
   countTagBadgeRows,
+  findNextRuneIconTop,
   computeTypicalLineHeight,
   findAllTagMatches,
   detectBackgroundColor,
