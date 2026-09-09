@@ -81,6 +81,17 @@ const CONFIG = {
   // without either missing real badges or picking up background
   // texture/scratches as false badges.
   BADGE_COLOR_THRESHOLD: 30,
+  // How saturated (max channel - min channel, 0-255) a pixel has to be
+  // to count toward a badge's contiguous run - confirmed via real
+  // screenshot pixel data: a genuine "+1 Event" badge showed sustained
+  // saturation around 56, while neutral background/letterbox/text
+  // stayed well under 20. Set comfortably below the observed badge
+  // value (25) rather than at it, since different badge colors/game
+  // updates could plausibly be a bit less saturated than this one
+  // sample - the run-length requirement below, not this threshold
+  // alone, is what actually excludes a rune icon's own textured
+  // artwork (which can spike similarly high but never sustains it).
+  BADGE_SATURATION_THRESHOLD: 25,
   // Minimum fraction of a pixel row that has to differ from background
   // before that whole row counts as "inside a badge" - a stray colored
   // pixel or two shouldn't flip a row, but a badge's own solid fill
@@ -117,7 +128,13 @@ const CONFIG = {
   // Same row-coverage-fraction concept as BADGE_ROW_COVERAGE_THRESHOLD -
   // a full width's worth of the outline (within the icon's own x-range)
   // should clear this comfortably; scattered bright noise shouldn't.
-  ICON_FRAME_ROW_COVERAGE_THRESHOLD: 0.5,
+  // Minimum contiguous bright run required to count as the icon frame's
+  // own border, expressed as a multiple of typicalLineHeight (computed
+  // at the call site, which has that value) - the icon frame's real
+  // width was confirmed at ~3.6x typicalLineHeight in a real
+  // screenshot; 1.5x leaves solid margin below that while still well
+  // above incidental noise.
+  ICON_FRAME_MIN_RUN_LINE_HEIGHT_MULTIPLE: 1.5,
   // The inventory panel's own bottom border spans nearly the entire
   // width, unlike the icon frame's narrow left strip - stops short of
   // the very edges (10%-90%) since the border's corners are visibly
@@ -130,8 +147,20 @@ const CONFIG = {
   // since these are visually similar but not guaranteed to be the exact
   // same shade in a real screenshot, and tuning one shouldn't silently
   // move the other.
-  WINDOW_BORDER_BRIGHTNESS_THRESHOLD: 195,
-  WINDOW_BORDER_ROW_COVERAGE_THRESHOLD: 0.5,
+  // Confirmed via real screenshot pixel data: the window border's own
+  // peak brightness was [130,130,130] - a distinctly dimmer, softer
+  // grey than the rune-icon frame's border (which peaked at 211-255),
+  // not the same near-white highlight at all despite looking visually
+  // similar at a glance. 100 sits comfortably below the observed 130
+  // while remaining clearly above genuine panel-interior background
+  // (confirmed in the 29-67 range in that same real data).
+  WINDOW_BORDER_BRIGHTNESS_THRESHOLD: 100,
+  // Fraction of the window-border detector's own scanned x-range that
+  // must be one contiguous bright run - the border spans nearly its
+  // entire scan range by nature (see findWindowBottomBorder's own
+  // comment), so this is proportional to that range, not to
+  // typicalLineHeight the way the icon frame's own minimum is.
+  WINDOW_BORDER_MIN_RUN_FRACTION: 0.6,
   // Safety cap on how many allocation attempts the recipe solver will try
   // before giving up, so a huge multi-waystone query can't hang the tab.
   SOLVER_NODE_LIMIT: 200000,
@@ -555,7 +584,11 @@ async function parseScreenshot(imgEl, onProgress, affixes) {
     // Tesseract having read the next rune's name at all. Shrinks the
     // effective scan height (not the canvas itself) rather than
     // requiring a second, separate crop/redraw.
-    const nextIconY = findNextRuneIconTop(getPixel, geomCanvas.width, geomCanvas.height, typicalLineHeight * geomScale * 0.5);
+    const nextIconY = findNextRuneIconTop(
+      getPixel, geomCanvas.width, geomCanvas.height,
+      typicalLineHeight * geomScale * 0.5,
+      typicalLineHeight * geomScale * CONFIG.ICON_FRAME_MIN_RUN_LINE_HEIGHT_MULTIPLE
+    );
     // A third, independent ceiling specifically for the LAST rune in a
     // screenshot - it has no next rune of any kind to bound against
     // (nextIconY and the next-cluster ceiling above are both naturally
@@ -577,7 +610,23 @@ async function parseScreenshot(imgEl, onProgress, affixes) {
     // just capping the reported count, keeps the precise-crop boundary
     // computed below consistent with whatever gets reported, rather
     // than being positioned using badges that aren't being counted.
-    const badges = countTagBadgeRows(getPixel, geomCanvas.width, scanHeight).slice(0, CONFIG.MAX_TAGS_PER_RUNE);
+    // A real badge's own physical width, confirmed via a real
+    // screenshot, scales with typicalLineHeight (observed ~3.7x it at
+    // native resolution) - well above a rune icon's own textured
+    // artwork, whose saturated runs never sustained past ~0.7x
+    // typicalLineHeight even at their noisiest. 1.5x leaves solid
+    // margin on both sides: comfortably above the icon-noise ceiling,
+    // comfortably below the observed real-badge width, so a narrower
+    // badge (shorter tag name) still safely clears it.
+    const minBadgeWidthPx = typicalLineHeight * geomScale * 1.5;
+    // A badge's own text can locally interrupt its saturated fill at a
+    // handful of rows without the badge itself actually ending -
+    // confirmed directly against a real screenshot. 0.4x typicalLineHeight
+    // comfortably bridges that (observed ~17px gap at native resolution,
+    // well under half a line height) while staying meaningfully smaller
+    // than the real spacing between two genuinely separate, stacked badges.
+    const maxBadgeGapPx = typicalLineHeight * geomScale * 0.4;
+    const badges = countTagBadgeRows(getPixel, geomCanvas.width, scanHeight, minBadgeWidthPx, maxBadgeGapPx).slice(0, CONFIG.MAX_TAGS_PER_RUNE);
     row.expectedTagCount = badges.length;
     row.missingParts = computeMissingParts(row.prefix, row.suffix, row.tags, row.expectedTagCount, row.tagsConfirmedComplete);
     row.needsReview = row.missingParts.length > 0;
@@ -826,19 +875,46 @@ function colorDistanceSq(a, b) {
  * each color channel across all samples (not the mean, which a
  * minority of badge-colored samples could still skew) - simple and
  * robust without needing a full histogram over every pixel. */
+/** Samples a dense grid across the full region (not just its edges) to
+ * determine the background color reference for badge detection - a
+ * real screenshot's full width can include content genuinely outside
+ * the actual inventory panel (a letterbox margin, black on every side
+ * of a narrower panel), which sampling only the very edges would
+ * incorrectly treat as "the background", when it's really a
+ * completely different color from the true, in-panel background badge
+ * detection actually needs to compare against (confirmed directly
+ * against a real screenshot: edges were pure black [0,0,0], the
+ * genuine in-panel background was [45,45,45] - a meaningfully
+ * different shade that edge-only sampling never saw). Uses the mode
+ * (most common color, after quantizing into coarse buckets to absorb
+ * minor texture/compression noise) rather than a plain median of a
+ * small sample set - background reliably occupies far more of a
+ * region's total area than any badge, icon, or text, so whichever
+ * color appears most across a broad, dense grid is a robust proxy for
+ * "the real background", regardless of where specifically it sits. */
 function detectBackgroundColor(getPixel, width, height) {
-  const sampleCount = 20;
-  const samples = [];
-  for (let i = 0; i < sampleCount; i++) {
-    const y = Math.floor((i / (sampleCount - 1)) * (height - 1));
-    samples.push(getPixel(0, y));
-    samples.push(getPixel(width - 1, y));
+  const gridSize = 20;
+  const bucketSize = 8;
+  const buckets = new Map();
+  for (let gy = 0; gy < gridSize; gy++) {
+    const y = Math.floor((gy / (gridSize - 1)) * (height - 1));
+    for (let gx = 0; gx < gridSize; gx++) {
+      const x = Math.floor((gx / (gridSize - 1)) * (width - 1));
+      const color = getPixel(x, y);
+      const key = color.map((c) => Math.round(c / bucketSize)).join(",");
+      const entry = buckets.get(key);
+      if (entry) {
+        entry.count++;
+      } else {
+        buckets.set(key, { count: 1, color });
+      }
+    }
   }
-  const channel = (i) => {
-    const sorted = samples.map((s) => s[i]).sort((a, b) => a - b);
-    return sorted[Math.floor(sorted.length / 2)];
-  };
-  return [channel(0), channel(1), channel(2)];
+  let best = null;
+  for (const entry of buckets.values()) {
+    if (!best || entry.count > best.count) best = entry;
+  }
+  return best.color;
 }
 
 /**
@@ -868,33 +944,91 @@ function detectBackgroundColor(getPixel, width, height) {
  * need, the same way the existing tag-crop-then-retry logic already
  * uses computed regions rather than just a yes/no signal.
  */
-function countTagBadgeRows(getPixel, width, height) {
-  const background = detectBackgroundColor(getPixel, width, height);
-  const thresholdSq = CONFIG.BADGE_COLOR_THRESHOLD * CONFIG.BADGE_COLOR_THRESHOLD;
+/**
+ * Counts distinct badge-shaped color bands within a cropped tag region,
+ * independent of whether OCR could read any text inside them - a badge
+ * is a solid, saturated pill of color, unlike everything else that can
+ * appear in this same region (a rune icon's own textured artwork, the
+ * app's neutral dark background, white/light name text, and even a
+ * black letterbox margin outside the actual content area in a full-
+ * width real screenshot). Classifies each row by whether it contains a
+ * sufficiently long CONTIGUOUS run of saturated pixels, rather than by
+ * distance from a computed "background" color - confirmed via real
+ * screenshot pixel data that background detection itself is fragile
+ * here (a full-width crop's own edges can be a letterbox margin
+ * completely different from the genuine in-panel background, and a
+ * multi-rune crop's icon/text content can outweigh genuine background
+ * in a sampled area, throwing off any attempt to identify "the"
+ * background color at all). Saturation-based detection sidesteps that
+ * entirely: real badge pixels showed sustained saturation (~56) across
+ * a wide, contiguous run (~165px in a real 1320px-wide screenshot),
+ * while a rune icon's own artwork occasionally spiked comparably high
+ * but never sustained it over more than ~32px - the run-length
+ * requirement is what actually distinguishes them, not the saturation
+ * threshold alone. `minBadgeWidthPx` is caller-supplied (scaled from
+ * the same typicalLineHeight/geomScale the caller already has) rather
+ * than a fraction of `width`, since `width` itself may include
+ * letterbox margins with nothing to do with a badge's actual physical
+ * size. This is the geometric ground truth for "how many tags should
+ * this rune have", genuinely independent of Tesseract's own text
+ * recognition - a rune with 3 visible badges but only 2 OCR-readable
+ * ones is unambiguously "2 resolved, 1 still needs review", and a rune
+ * with correctly zero badges is unambiguously not, without needing to
+ * know the game's actual rule about whether every rune has at least
+ * one. Returns an array of { top, bottom } row ranges, one per
+ * detected badge, ordered top to bottom - not just a count, since
+ * these boundaries are also what the precise-crop-for-retry logic
+ * uses, the same way the existing tag-crop-then-retry logic already
+ * uses computed regions rather than just a yes/no signal.
+ */
+function countTagBadgeRows(getPixel, width, height, minBadgeWidthPx, maxGapPx = 0) {
+  const saturationThreshold = CONFIG.BADGE_SATURATION_THRESHOLD;
 
   const rowIsBadge = [];
   for (let y = 0; y < height; y++) {
-    let differing = 0;
-    // Sampling every 3rd column is enough to classify a row reliably
-    // and meaningfully cheaper than checking every single pixel,
-    // especially against an aggressively upscaled crop.
-    let sampled = 0;
-    for (let x = 0; x < width; x += 3) {
-      sampled++;
-      if (colorDistanceSq(getPixel(x, y), background) > thresholdSq) differing++;
+    let longestRun = 0;
+    let currentRun = 0;
+    for (let x = 0; x < width; x++) {
+      const [r, g, b] = getPixel(x, y);
+      const saturation = Math.max(r, g, b) - Math.min(r, g, b);
+      if (saturation > saturationThreshold) {
+        currentRun++;
+        if (currentRun > longestRun) longestRun = currentRun;
+      } else {
+        currentRun = 0;
+      }
     }
-    rowIsBadge.push(sampled > 0 && differing / sampled >= CONFIG.BADGE_ROW_COVERAGE_THRESHOLD);
+    rowIsBadge.push(longestRun >= minBadgeWidthPx);
   }
 
-  const badges = [];
+  const rawRuns = [];
   let runStart = null;
   for (let y = 0; y <= height; y++) {
     const isBadge = y < height && rowIsBadge[y];
     if (isBadge && runStart === null) {
       runStart = y;
     } else if (!isBadge && runStart !== null) {
-      badges.push({ top: runStart, bottom: y });
+      rawRuns.push({ top: runStart, bottom: y });
       runStart = null;
+    }
+  }
+
+  // Merges runs separated by only a small vertical gap into one badge -
+  // a badge's own text (its "+N Category" label) isn't a uniform fill;
+  // individual glyphs can locally break the saturated run at a handful
+  // of rows even though the badge itself is visually one continuous
+  // pill, confirmed directly against a real screenshot where a single
+  // real badge was otherwise reported as two separate, shorter ones
+  // with a small gap between them. maxGapPx defaults to 0 (no merging)
+  // for callers that haven't been updated to pass a real gap tolerance -
+  // existing behavior for those is unchanged.
+  const badges = [];
+  for (const run of rawRuns) {
+    const prev = badges[badges.length - 1];
+    if (prev && run.top - prev.bottom <= maxGapPx) {
+      prev.bottom = run.bottom;
+    } else {
+      badges.push({ ...run });
     }
   }
   return badges;
@@ -925,20 +1059,40 @@ function countTagBadgeRows(getPixel, width, height) {
  * left-aligned, the window border wide, close to the full width) -
  * genuinely the same underlying detection, not two unrelated things
  * that happen to share code. */
-function findBrightHorizontalBand(getPixel, width, height, searchFromY, xStartFraction, xEndFraction, brightnessThreshold, coverageThreshold) {
+/** Shared core for both findNextRuneIconTop and findWindowBottomBorder -
+ * scans rows from `searchFromY` downward for one containing a
+ * sufficiently long CONTIGUOUS run of bright pixels within
+ * [xStartFraction, xEndFraction] of width, returning the first
+ * qualifying row's y-coordinate, or null if none is found before
+ * `height`. Both the rune-icon frame and the inventory window's own
+ * bottom border are the same kind of visual signal at heart - a thin,
+ * near-white outline against a darker interior - just spanning
+ * different portions of the image width (the icon frame narrow and
+ * left-aligned, the window border wide, close to the full width) -
+ * genuinely the same underlying detection, not two unrelated things
+ * that happen to share code. Uses a minimum contiguous run length
+ * rather than a percentage-of-row coverage threshold - confirmed
+ * directly against a real screenshot that a percentage-coverage
+ * approach was too strict for a THIN outline (which never occupies a
+ * large fraction of even its own narrow scan range), the same
+ * fundamental issue that motivated switching badge detection itself
+ * away from percentage coverage. */
+function findBrightHorizontalBand(getPixel, width, height, searchFromY, xStartFraction, xEndFraction, brightnessThreshold, minRunWidthPx) {
   const xStart = Math.floor(width * xStartFraction);
   const xEnd = Math.floor(width * xEndFraction);
   for (let y = Math.max(0, Math.floor(searchFromY)); y < height; y++) {
-    let bright = 0;
-    let sampled = 0;
-    for (let x = xStart; x < xEnd; x += 2) {
-      sampled++;
+    let longestRun = 0;
+    let currentRun = 0;
+    for (let x = xStart; x < xEnd; x++) {
       const [r, g, b] = getPixel(x, y);
       if (r >= brightnessThreshold && g >= brightnessThreshold && b >= brightnessThreshold) {
-        bright++;
+        currentRun++;
+        if (currentRun > longestRun) longestRun = currentRun;
+      } else {
+        currentRun = 0;
       }
     }
-    if (sampled > 0 && bright / sampled >= coverageThreshold) return y;
+    if (longestRun >= minRunWidthPx) return y;
   }
   return null;
 }
@@ -956,11 +1110,11 @@ function findBrightHorizontalBand(getPixel, width, height, searchFromY, xStartFr
  * the same reason - testable against synthetic data, not tied to a
  * specific ImageData shape.
  */
-function findNextRuneIconTop(getPixel, width, height, searchFromY) {
+function findNextRuneIconTop(getPixel, width, height, searchFromY, minRunWidthPx) {
   return findBrightHorizontalBand(
     getPixel, width, height, searchFromY,
     0, CONFIG.ICON_FRAME_X_FRACTION,
-    CONFIG.ICON_FRAME_BRIGHTNESS_THRESHOLD, CONFIG.ICON_FRAME_ROW_COVERAGE_THRESHOLD
+    CONFIG.ICON_FRAME_BRIGHTNESS_THRESHOLD, minRunWidthPx
   );
 }
 
@@ -978,10 +1132,18 @@ function findNextRuneIconTop(getPixel, width, height, searchFromY) {
  * average below detection.
  */
 function findWindowBottomBorder(getPixel, width, height, searchFromY) {
+  const xStart = Math.floor(width * CONFIG.WINDOW_BORDER_X_START_FRACTION);
+  const xEnd = Math.floor(width * CONFIG.WINDOW_BORDER_X_END_FRACTION);
+  // Computed as a fraction of this detector's own scanned range, not
+  // typicalLineHeight - unlike the icon frame or a badge (both sized
+  // relative to text/UI element sizing), the window border spans
+  // nearly the full width of its scan range by nature, regardless of
+  // screenshot resolution or text size.
+  const minRunWidthPx = (xEnd - xStart) * CONFIG.WINDOW_BORDER_MIN_RUN_FRACTION;
   return findBrightHorizontalBand(
     getPixel, width, height, searchFromY,
     CONFIG.WINDOW_BORDER_X_START_FRACTION, CONFIG.WINDOW_BORDER_X_END_FRACTION,
-    CONFIG.WINDOW_BORDER_BRIGHTNESS_THRESHOLD, CONFIG.WINDOW_BORDER_ROW_COVERAGE_THRESHOLD
+    CONFIG.WINDOW_BORDER_BRIGHTNESS_THRESHOLD, minRunWidthPx
   );
 }
 
@@ -1692,6 +1854,7 @@ export const PradoApp = {
   countTagBadgeRows,
   findNextRuneIconTop,
   findWindowBottomBorder,
+  findBrightHorizontalBand,
   computeTypicalLineHeight,
   findAllTagMatches,
   detectBackgroundColor,
