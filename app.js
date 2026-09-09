@@ -92,6 +92,21 @@ const CONFIG = {
   // alone, is what actually excludes a rune icon's own textured
   // artwork (which can spike similarly high but never sustains it).
   BADGE_SATURATION_THRESHOLD: 25,
+  // How far a pixel's brightness has to differ from a locally-sampled
+  // background reference to count as a grey/neutral badge (e.g.
+  // "Monster", whose real fill measured [65-68,65-68,65-68] against a
+  // genuine panel background of [45,45,45] - a ~21-point gap) - this is
+  // what catches a badge with essentially zero color saturation, which
+  // the saturation check above can never see on its own. Set above the
+  // ~10-point natural texture-noise variation already observed within
+  // plain background itself, comfortably below the ~21-point real gap.
+  BADGE_GREY_BRIGHTNESS_DELTA: 15,
+  // Upper bound on that same delta - white/light rune-name text is also
+  // meaningfully brighter than background, but by a far larger margin
+  // (~200+ points observed directly) than a genuine grey badge's own
+  // gap (~21 points) - this ceiling is what actually keeps a wrapped
+  // name's own text from being counted as a badge itself.
+  BADGE_GREY_BRIGHTNESS_MAX_DELTA: 100,
   // Minimum fraction of a pixel row that has to differ from background
   // before that whole row counts as "inside a badge" - a stray colored
   // pixel or two shouldn't flip a row, but a badge's own solid fill
@@ -984,14 +999,72 @@ function detectBackgroundColor(getPixel, width, height) {
 function countTagBadgeRows(getPixel, width, height, minBadgeWidthPx, maxGapPx = 0) {
   const saturationThreshold = CONFIG.BADGE_SATURATION_THRESHOLD;
 
+  // A colored badge (Event, Treasure, Rest, etc.) is reliably caught by
+  // saturation alone - but a "Monster" badge's own fill is genuinely,
+  // perfectly neutral grey (confirmed directly against a real
+  // screenshot: [65-68,65-68,65-68], saturation exactly 0), completely
+  // invisible to a saturation-only check despite being one of the most
+  // common tag categories. Uses a low percentile of brightness across a
+  // broad sample of this whole scan region as the background reference,
+  // rather than a plain mean restricted to just its first few rows -
+  // confirmed directly that sampling right at the very top of the
+  // region can still be pulled upward by residual text-edge/anti-
+  // aliasing contamination from whatever line precedes it (measured
+  // ~59 there against a genuine ~45-59 background, enough to hide the
+  // real badge's own, smaller gap). Genuine background is reliably the
+  // DARKEST content in any broad sample regardless of how much text or
+  // badge content also appears in it, so a low percentile stays robust
+  // even when a fixed handful of rows isn't.
+  const brightnessSamples = [];
+  // Restricted to the same safe 10%-90% x-range already established
+  // for the window-border detector - this scan region can be the full
+  // screenshot width (including a letterbox margin outside the actual
+  // panel, per the same discovery that motivated that detector's own
+  // x-range), and a broad brightness sample that included it pulled
+  // the low percentile all the way down to 0 (confirmed directly) -
+  // letterbox black is even darker than genuine background, not a
+  // proxy for it.
+  const bgXStart = Math.floor(width * CONFIG.WINDOW_BORDER_X_START_FRACTION);
+  const bgXEnd = Math.floor(width * CONFIG.WINDOW_BORDER_X_END_FRACTION);
+  for (let y = 0; y < height; y += 3) {
+    for (let x = bgXStart; x < bgXEnd; x += 7) {
+      const [r, g, b] = getPixel(x, y);
+      brightnessSamples.push((r + g + b) / 3);
+    }
+  }
+  brightnessSamples.sort((a, b) => a - b);
+  const localBackgroundBrightness = brightnessSamples.length > 0 ? brightnessSamples[Math.floor(brightnessSamples.length * 0.15)] : 0;
+  const greyBadgeBrightnessDelta = CONFIG.BADGE_GREY_BRIGHTNESS_DELTA;
+
   const rowIsBadge = [];
+  // Scanning starts past the rune icon's own x-range (the same
+  // ICON_FRAME_X_FRACTION boundary used elsewhere) rather than from
+  // x=0 - confirmed directly that the icon's own textured artwork can
+  // otherwise produce a wide-enough, mid-brightness contiguous run to
+  // be mistaken for a grey badge (its warm stone texture isn't
+  // saturated, but sits in a similar brightness band); a real badge
+  // never actually starts this early in any screenshot examined so far.
+  const badgeScanXStart = Math.floor(width * CONFIG.ICON_FRAME_X_FRACTION);
   for (let y = 0; y < height; y++) {
     let longestRun = 0;
     let currentRun = 0;
-    for (let x = 0; x < width; x++) {
+    for (let x = badgeScanXStart; x < width; x++) {
       const [r, g, b] = getPixel(x, y);
       const saturation = Math.max(r, g, b) - Math.min(r, g, b);
-      if (saturation > saturationThreshold) {
+      const brightness = (r + g + b) / 3;
+      const isSaturatedBadge = saturation > saturationThreshold;
+      // Bounded on both ends - a badge's own brightness increase over
+      // background is modest (Monster's real fill was ~21 points above
+      // a ~45 background, still much darker than white text): the lower
+      // bound excludes plain background noise, the upper bound is what
+      // actually distinguishes this from white/light rune-name text
+      // (confirmed directly: ~200+ points above background, an order
+      // of magnitude larger than a genuine grey badge's own gap) -
+      // without this ceiling, a wrapped name's own second text line
+      // was being counted as a "badge" itself.
+      const brightnessDelta = brightness - localBackgroundBrightness;
+      const isGreyBadge = brightnessDelta > greyBadgeBrightnessDelta && brightnessDelta < CONFIG.BADGE_GREY_BRIGHTNESS_MAX_DELTA;
+      if (isSaturatedBadge || isGreyBadge) {
         currentRun++;
         if (currentRun > longestRun) longestRun = currentRun;
       } else {
