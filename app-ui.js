@@ -156,6 +156,35 @@ const omenFilters = {};
 
 let activeTier = 1;
 
+// Which waystones currently have their recipe formula expanded, keyed by
+// "tier|name" (selKey) same as waystoneSelections - a UI-only expand/
+// collapse state for the current session, not persisted.
+const expandedWaystones = new Set();
+
+/** Renders a waystone's recipe requirement(s) as a readable formula, e.g.
+ * City + Mask + (Mask or Night) - each type shown with its rune icon. A
+ * waystone can have more than one valid recipe (see recipes.json); each
+ * variant is rendered as its own line, separated by "or". */
+function recipeFormulaHtml(waystone) {
+  const variants = waystone.recipes.map((recipe) => {
+    const slotsHtml = recipe.slots
+      .map((slot) => {
+        const typesHtml = slot
+          .map((type) => `<span class="formula-type">${iconSvg(type)}${escapeHtml(type)}</span>`)
+          .join('<span class="formula-or">or</span>');
+        return slot.length > 1
+          ? `<span class="formula-slot formula-slot-wild">${typesHtml}</span>`
+          : `<span class="formula-slot">${typesHtml}</span>`;
+      })
+      .join('<span class="formula-plus">+</span>');
+    return `<div class="formula-variant">${slotsHtml}</div>`;
+  });
+
+  return `<div class="waystone-formula">
+    ${variants.join('<div class="formula-variant-divider">or</div>')}
+  </div>`;
+}
+
 const els = {
   fileInput: document.getElementById("file-input"),
   previewStrip: document.getElementById("preview-strip"),
@@ -1299,11 +1328,19 @@ function renderWaystoneList() {
           const sel = waystoneSelections[key];
           const color = colorByKey.get(key);
           const checkboxId = `wcheck-${idCounter++}`;
-          return `<div class="waystone-option ${color}">
-            <input type="checkbox" id="${checkboxId}" data-role="target" data-tier="${w.tier}" data-name="${escapeHtml(w.name)}" ${sel.checked ? "checked" : ""} />
-            <input type="number" class="qty-input" min="0" step="1"
-              data-role="target-qty" data-tier="${w.tier}" data-name="${escapeHtml(w.name)}" value="${sel.quantity}" />
-            <label for="${checkboxId}">${escapeHtml(w.name)}</label>
+          const expanded = expandedWaystones.has(key);
+          return `<div class="waystone-row">
+            <div class="waystone-option ${color}">
+              <input type="checkbox" id="${checkboxId}" data-role="target" data-tier="${w.tier}" data-name="${escapeHtml(w.name)}" ${sel.checked ? "checked" : ""} />
+              <input type="number" class="qty-input" min="0" step="1"
+                data-role="target-qty" data-tier="${w.tier}" data-name="${escapeHtml(w.name)}" value="${sel.quantity}" />
+              <button type="button" class="waystone-name" data-role="waystone-toggle"
+                data-tier="${w.tier}" data-name="${escapeHtml(w.name)}" aria-expanded="${expanded}">
+                <span class="waystone-name-text">${escapeHtml(w.name)}</span>
+                <span class="waystone-chevron ${expanded ? "open" : ""}">&#9656;</span>
+              </button>
+            </div>
+            ${expanded ? recipeFormulaHtml(w) : ""}
           </div>`;
         })
         .join("")}
@@ -1377,6 +1414,15 @@ function renderWaystoneList() {
       sel.quantity = e.target.value;
       sel.quantityTouched = e.target.value !== "";
       updateCommitOrder(sel, wasCommitted);
+      renderWaystoneList();
+    });
+  });
+
+  els.waystoneList.querySelectorAll('[data-role="waystone-toggle"]').forEach((el) => {
+    el.addEventListener("click", () => {
+      const key = selKey(el.dataset.tier, el.dataset.name);
+      if (expandedWaystones.has(key)) expandedWaystones.delete(key);
+      else expandedWaystones.add(key);
       renderWaystoneList();
     });
   });

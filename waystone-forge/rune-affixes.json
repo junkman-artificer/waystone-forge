@@ -1,0 +1,37 @@
+{
+  "_comment": "Community-maintained rune affix reference. Source: user-provided doc, credited to Total Stenographical Solutions. Update this file whenever the game introduces new prefixes/suffixes - just add an entry to the matching list below, no code changes needed. 'abbrev' is a short bracket-ready tag shown next to a named stack when resolving which one to build with - keep it distinct from every other abbrev in the same list (Fortune vs Omen lists are compared separately, since they render with different bracket shapes) and prefer the +/- direction of the actual stat where one clearly applies; drop the sign for triggered/conditional effects that aren't a simple increase or decrease.",
+  "fortunes": [
+    { "name": "Archival", "effect": "Spellbook Finder", "abbrev": "+Spellbook" },
+    { "name": "Abundant", "effect": "Treasure Item Drop", "abbrev": "+TreasureItem" },
+    { "name": "Ascendant", "effect": "Higher Level Runes", "abbrev": "+RuneLevel" },
+    { "name": "Bountiful", "effect": "Item Drop Rate", "abbrev": "+ItemRate" },
+    { "name": "Fabled", "effect": "Rare Monster", "abbrev": "+RareMonster" },
+    { "name": "Fortune", "effect": "Wild Cards to be Treasures", "abbrev": "+WildTreasure" },
+    { "name": "Gleaming", "effect": "Treasure Card Rarity", "abbrev": "+TreasureCardRty" },
+    { "name": "Hallowed", "effect": "Wild Cards to be Shrines", "abbrev": "+WildShrine" },
+    { "name": "Jeweled", "effect": "Gem Finder", "abbrev": "+Gem" },
+    { "name": "Lavish", "effect": "Monster Item Drop Rarity", "abbrev": "+LootRarity" },
+    { "name": "Mythic", "effect": "All Monster Rarity", "abbrev": "+MonsterRarity" },
+    { "name": "Opulent", "effect": "Treasure Item Rarity", "abbrev": "+ChestRarity" },
+    { "name": "Peculiar", "effect": "Uncommon Monster", "abbrev": "+UncommonMob" },
+    { "name": "Sacred", "effect": "Shrine Card Rarity", "abbrev": "+ShrineRarity" },
+    { "name": "Savage", "effect": "Wild Cards to be Monsters", "abbrev": "+WildMonster" }
+  ],
+  "omens": [
+    { "name": "Dampening", "effect": "Enemy Increased Magic Resistance%", "abbrev": "+MagicRes" },
+    { "name": "Decay", "effect": "All Healing Reduced", "abbrev": "-Heal" },
+    { "name": "Elusion", "effect": "Enemy Dodge", "abbrev": "+Dodge" },
+    { "name": "Exhaustion", "effect": "Mana Cost Increased", "abbrev": "+ManaCost" },
+    { "name": "Frenzy", "effect": "Enemy Attack/Ability Speed", "abbrev": "+Speed" },
+    { "name": "Ironhide", "effect": "Enemy Armor", "abbrev": "+Armor" },
+    { "name": "Last Rites", "effect": "Enemies Heal Allies On Death", "abbrev": "DeathHeal" },
+    { "name": "Leeching", "effect": "Enemy Attacks Drain Mana", "abbrev": "ManaDrain" },
+    { "name": "Tenacity", "effect": "Enemy Increased Max Health & Max Mana", "abbrev": "+HP/MP" },
+    { "name": "Thorns", "effect": "Weapon Reflect", "abbrev": "WpnReflect" },
+    { "name": "Slaughter", "effect": "Enemy Increased Crit%", "abbrev": "+Crit" },
+    { "name": "Reprisal", "effect": "Spell Reflect", "abbrev": "SpellReflect" },
+    { "name": "Vampirism", "effect": "Enemy Lifesteal", "abbrev": "+Lifesteal" },
+    { "name": "Withering", "effect": "Party Reduced Health & Mana Regen", "abbrev": "-Regen" },
+    { "name": "Wrath", "effect": "Enemy Increased Damage", "abbrev": "+Dmg" }
+  ]
+}
