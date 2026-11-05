@@ -868,11 +868,6 @@ th {
   cursor: pointer;
 }
 
-.waystone-row {
-  border-radius: 3px;
-  overflow: hidden;
-}
-
 .waystone-option {
   display: flex;
   align-items: center;
@@ -896,94 +891,6 @@ th {
 .waystone-option.red {
   border-left-color: var(--rust);
   background: rgba(180, 85, 47, 0.08);
-}
-
-.waystone-name {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.4rem;
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0;
-  color: var(--text);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.waystone-name:hover .waystone-name-text {
-  color: var(--gold);
-}
-
-.waystone-name:hover .waystone-chevron {
-  color: var(--gold);
-}
-
-.waystone-chevron {
-  display: inline-block;
-  color: var(--text-muted);
-  font-size: 0.7rem;
-  transition: transform 0.15s ease, color 0.15s ease;
-  flex-shrink: 0;
-}
-
-.waystone-chevron.open {
-  transform: rotate(90deg);
-}
-
-.waystone-formula {
-  padding: 0.5rem 0.5rem 0.6rem 2.1rem;
-  font-size: 0.82rem;
-  color: var(--text-muted);
-}
-
-.formula-variant {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-.formula-variant-divider {
-  font-family: var(--font-display);
-  color: var(--gold-dim);
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin: 0.3rem 0;
-}
-
-.formula-slot {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-.formula-slot-wild {
-  padding: 0.1rem 0.4rem;
-  border: 1px dashed var(--rule);
-  border-radius: 3px;
-}
-
-.formula-type {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  color: var(--text);
-}
-
-.formula-type .rune-icon {
-  width: 0.95rem;
-  height: 0.95rem;
-}
-
-.formula-plus,
-.formula-or {
-  color: var(--text-muted);
-  font-size: 0.78rem;
 }
 
 .qty-input {
