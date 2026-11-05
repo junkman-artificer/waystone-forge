@@ -23,7 +23,7 @@
         { "slots": [["City"], ["City"], ["City", "Mask", "Night", "Song"]] },
         { "slots": [["City"], ["Mask"], ["Mask", "Night"]] },
         { "slots": [["Mask"], ["Mask"], ["Flower", "Mask", "Mud", "Night", "River", "Song"]] },
-        { "slots": [["Mask"], ["Mud"], ["Song"]] }
+        { "slots": [["Flower"], ["Mask"], ["Night"]] }
       ]
     },
     {
@@ -44,8 +44,8 @@
       "name": "Gloomwood Depths",
       "location": "Gloomhaven",
       "recipes": [
-        { "slots": [["Flower"], ["Mask", "Mud"], ["Mud", "Night"]] },
-        { "slots": [["Mask"], ["Mud", "Night"], ["Mud", "Night", "River"]] },
+        { "slots": [["Flower"], ["Mud"], ["Mud", "Night"]] },
+        { "slots": [["Mask"], ["Mud", "Night"], ["Mud", "Night"]] },
         { "slots": [["Mud"], ["Mud"], ["Mud", "Night", "River", "Song"]] },
         { "slots": [["Mud"], ["Night"], ["River", "Song"]] },
         { "slots": [["Night"], ["Night"], ["City", "Flower", "Mud", "Night", "River", "Song"]] }
@@ -83,7 +83,7 @@
         { "slots": [["River"], ["River"], ["Mask", "Mud", "Night"]] },
         { "slots": [["River"], ["Song"], ["Mask", "Mud", "Night"]] },
         { "slots": [["Song"], ["Song"], ["Mask", "Mud", "Night"]] },
-        { "slots": [["City"], ["Song"], ["Night", "Song"]] }
+        { "slots": [["City"], ["Song"], ["Song"]] }
       ]
     },
     {
